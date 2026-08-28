@@ -82,7 +82,7 @@
       touch-action: none;
     }
 
-    /* TOUCH GAMEPAD MOBILE */
+    /* TOUCH CONTROLS MOBILE */
     .touch-controls {
       width: 100%;
       display: flex;
@@ -146,7 +146,7 @@
       .btn-jump { width: 110px; height: 60px; font-size: 16px; }
     }
 
-    /* Modais e Overlays */
+    /* Modais e Telas */
     .overlay-screen {
       position: absolute;
       top: 8px;
@@ -525,7 +525,23 @@
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
-    // --- Cores dos Jogadores ---
+    // --- GERADOR DE NÚMEROS DETERMINÍSTICO (PRNG Mulberry32) ---
+    let matchSeed = 123456;
+    let prngState = 123456;
+
+    function resetPRNG(seed) {
+      matchSeed = seed;
+      prngState = seed >>> 0;
+    }
+
+    function syncRandom() {
+      let t = prngState += 0x6D2B79F5;
+      t = Math.imul(t ^ t >>> 15, t | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    }
+
+    // --- Paleta de Cores ---
     const PLAYER_COLORS = [
       { name: 'Clássico', hex: '#535353' },
       { name: 'Azul', hex: '#2980b9' },
@@ -644,7 +660,7 @@
 
         if (this.bannerTimer > 0) this.bannerTimer--;
 
-        if (netMode !== 'client' && score >= this.nextChangeDist && !this.transitioning && !boss.active) {
+        if (score >= this.nextChangeDist && !this.transitioning && !boss.active) {
           const next = this.current === 'desert' ? 'water' : 'desert';
           this.startTransition(next);
         }
@@ -660,7 +676,7 @@
           if (this.seamX < -100) {
             this.transitioning = false;
             this.current = this.targetBiome;
-            this.nextChangeDist = score + Math.floor(Math.random() * 160) + 340;
+            this.nextChangeDist = score + Math.floor(syncRandom() * 160) + 340;
           }
         } else {
           this.skyFactor = this.current === 'water' ? 1 : 0;
@@ -699,8 +715,8 @@
 
     function spawnPlatform(customX = canvas.width, customY = null, customW = null) {
       const heights = [groundY - 24, groundY - 42, groundY - 60];
-      const pY = customY !== null ? customY : heights[Math.floor(Math.random() * heights.length)];
-      const pW = customW !== null ? customW : Math.floor(Math.random() * 45) + 85;
+      const pY = customY !== null ? customY : heights[Math.floor(syncRandom() * heights.length)];
+      const pW = customW !== null ? customW : Math.floor(syncRandom() * 45) + 85;
 
       platforms.push({ x: customX, y: pY, width: pW, height: 12 });
     }
@@ -711,9 +727,9 @@
       const isWaterPresent = biomeSystem.current === 'water' || 
                             (biomeSystem.transitioning && (biomeSystem.targetBiome === 'water' || biomeSystem.current === 'water'));
 
-      if (isWaterPresent && !boss.active && netMode !== 'client') {
+      if (isWaterPresent && !boss.active) {
         platformTimer++;
-        if (platformTimer > 45 && Math.random() < 0.08) {
+        if (platformTimer > 45 && syncRandom() < 0.08) {
           if (!biomeSystem.transitioning || biomeSystem.targetBiome === 'water' || (biomeSystem.targetBiome === 'desert' && canvas.width < biomeSystem.seamX)) {
             spawnPlatform();
             platformTimer = 0;
@@ -752,8 +768,8 @@
         const c = clouds[i];
         c.x -= gameSpeed * c.speedFactor;
         if (c.x + c.width < 0) {
-          c.x = canvas.width + Math.random() * 80;
-          c.y = Math.random() * 55 + 20;
+          c.x = canvas.width + 50;
+          c.y = 20 + (i * 20);
         }
         const rx = Math.round(c.x);
         const ry = Math.round(c.y);
@@ -1135,19 +1151,19 @@
       const isSpawnOverWater = !biomeSystem.isSolidGroundAt(spawnX);
 
       if (isSpawnOverWater) {
-        if (roomSettings.enableFlyers && Math.random() < 0.6) {
+        if (roomSettings.enableFlyers && syncRandom() < 0.6) {
           const heights = [groundY - 60, groundY - 85, groundY - 110];
           obstacles.push({
             type: 'flyer',
             x: spawnX,
-            y: heights[Math.floor(Math.random() * heights.length)],
+            y: heights[Math.floor(syncRandom() * heights.length)],
             width: 42, height: 32, speedOffset: 0.8
           });
         } else if (roomSettings.enableNyan && score > 120) {
           obstacles.push({
             type: 'nyan',
             x: spawnX,
-            y: Math.random() * (groundY - 110) + 30,
+            y: syncRandom() * (groundY - 110) + 30,
             width: 74, height: 28, speed: gameSpeed + 1.2,
             isTracking: true, lockDistance: dino.x + 220
           });
@@ -1155,13 +1171,13 @@
         return;
       }
 
-      const chosenType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
+      const chosenType = availableTypes[Math.floor(syncRandom() * availableTypes.length)];
 
       if (chosenType === 'nyan') {
         obstacles.push({
           type: 'nyan',
           x: spawnX,
-          y: Math.random() * (groundY - 110) + 30,
+          y: syncRandom() * (groundY - 110) + 30,
           width: 74, height: 28, speed: gameSpeed + 1.2,
           isTracking: true, lockDistance: dino.x + 220
         });
@@ -1173,18 +1189,18 @@
           y: groundY - frogHeight + 2,
           width: 36, height: frogHeight,
           speedOffset: 5.0,
-          wobbleOffset: Math.random() * Math.PI * 2
+          wobbleOffset: syncRandom() * Math.PI * 2
         });
       } else if (chosenType === 'flyer') {
         const heights = [groundY - 35, groundY - 60, groundY - 85];
         obstacles.push({
           type: 'flyer',
           x: spawnX,
-          y: heights[Math.floor(Math.random() * heights.length)],
+          y: heights[Math.floor(syncRandom() * heights.length)],
           width: 42, height: 32, speedOffset: 0.8
         });
       } else {
-        const cVar = cactusVariations[Math.floor(Math.random() * cactusVariations.length)];
+        const cVar = cactusVariations[Math.floor(syncRandom() * cactusVariations.length)];
         obstacles.push({
           type: 'cactus',
           x: spawnX,
@@ -1195,14 +1211,11 @@
     }
 
     function updateObstacles() {
-      // Apenas o Host e o Solo geram obstáculos aleatórios
-      if (netMode !== 'client') {
-        obstacleTimer++;
-        if (obstacleTimer > minObstacleDistance && Math.random() < 0.045) {
-          spawnObstacle();
-          obstacleTimer = 0;
-          minObstacleDistance = Math.floor(Math.random() * 45) + 65;
-        }
+      obstacleTimer++;
+      if (obstacleTimer > minObstacleDistance && syncRandom() < 0.045) {
+        spawnObstacle();
+        obstacleTimer = 0;
+        minObstacleDistance = Math.floor(syncRandom() * 45) + 65;
       }
 
       for (let i = obstacles.length - 1; i >= 0; i--) {
@@ -1296,58 +1309,56 @@
     };
 
     function spawnMeteor() {
-      const typeRoll = Math.random();
+      const typeRoll = syncRandom();
       let size, vx, vy, rotSpeed;
       if (typeRoll < 0.35) {
-        size = Math.floor(Math.random() * 6) + 20;
-        vx = -(Math.random() * 3 + 5);
-        vy = Math.random() * 3 + 5.5;
-        rotSpeed = (Math.random() * 0.1 + 0.08);
+        size = Math.floor(syncRandom() * 6) + 20;
+        vx = -(syncRandom() * 3 + 5);
+        vy = syncRandom() * 3 + 5.5;
+        rotSpeed = (syncRandom() * 0.1 + 0.08);
       } else if (typeRoll < 0.78) {
-        size = Math.floor(Math.random() * 10) + 32;
-        vx = -(Math.random() * 2 + 3.5);
-        vy = Math.random() * 2.5 + 4;
-        rotSpeed = (Math.random() * 0.06 + 0.04);
+        size = Math.floor(syncRandom() * 10) + 32;
+        vx = -(syncRandom() * 2 + 3.5);
+        vy = syncRandom() * 2.5 + 4;
+        rotSpeed = (syncRandom() * 0.06 + 0.04);
       } else {
-        size = Math.floor(Math.random() * 12) + 52;
-        vx = -(Math.random() * 1.5 + 2.5);
-        vy = Math.random() * 2 + 3;
-        rotSpeed = (Math.random() * 0.03 + 0.02);
+        size = Math.floor(syncRandom() * 12) + 52;
+        vx = -(syncRandom() * 1.5 + 2.5);
+        vy = syncRandom() * 2 + 3;
+        rotSpeed = (syncRandom() * 0.03 + 0.02);
       }
 
       meteors.push({
-        x: Math.random() * (canvas.width + 160) - 40,
+        x: syncRandom() * (canvas.width + 160) - 40,
         y: -size - 10,
         width: size, height: size,
         vx: vx, vy: vy, angle: 0,
-        rotSpeed: Math.random() < 0.5 ? rotSpeed : -rotSpeed
+        rotSpeed: syncRandom() < 0.5 ? rotSpeed : -rotSpeed
       });
     }
 
     function updateMeteors() {
       if (!roomSettings.enableMeteors || boss.active) return;
 
-      if (netMode !== 'client') {
-        const currentDist = score;
-        if (meteorEvent.state === 'idle') {
-          if (currentDist >= meteorEvent.nextShowerDist - meteorEvent.warningDist) {
-            meteorEvent.state = 'warning';
-          }
-        } else if (meteorEvent.state === 'warning') {
-          if (currentDist >= meteorEvent.nextShowerDist) {
-            meteorEvent.state = 'active';
-            meteorEvent.showerLength = Math.floor(Math.random() * 30) + 55;
-          }
-        } else if (meteorEvent.state === 'active') {
-          meteorEvent.spawnCooldown++;
-          if (meteorEvent.spawnCooldown > 22) {
-            spawnMeteor();
-            meteorEvent.spawnCooldown = 0;
-          }
-          if (currentDist >= meteorEvent.nextShowerDist + meteorEvent.showerLength) {
-            meteorEvent.state = 'idle';
-            meteorEvent.nextShowerDist = currentDist + Math.floor(Math.random() * 300 + 200);
-          }
+      const currentDist = score;
+      if (meteorEvent.state === 'idle') {
+        if (currentDist >= meteorEvent.nextShowerDist - meteorEvent.warningDist) {
+          meteorEvent.state = 'warning';
+        }
+      } else if (meteorEvent.state === 'warning') {
+        if (currentDist >= meteorEvent.nextShowerDist) {
+          meteorEvent.state = 'active';
+          meteorEvent.showerLength = Math.floor(syncRandom() * 30) + 55;
+        }
+      } else if (meteorEvent.state === 'active') {
+        meteorEvent.spawnCooldown++;
+        if (meteorEvent.spawnCooldown > 22) {
+          spawnMeteor();
+          meteorEvent.spawnCooldown = 0;
+        }
+        if (currentDist >= meteorEvent.nextShowerDist + meteorEvent.showerLength) {
+          meteorEvent.state = 'idle';
+          meteorEvent.nextShowerDist = currentDist + Math.floor(syncRandom() * 300 + 200);
         }
       }
 
@@ -1423,7 +1434,7 @@
     };
 
     function checkBossTrigger() {
-      if (!roomSettings.enableBoss || netMode === 'client') return;
+      if (!roomSettings.enableBoss) return;
       if (score >= 1000 && !boss.active && !boss.defeated) {
         boss.active = true;
         boss.hp = 100;
@@ -1438,44 +1449,42 @@
       if (boss.x > boss.targetX) boss.x -= 2.0;
       boss.y = boss.baseY + Math.sin(animFrameCounter * boss.speedY) * 45;
 
-      if (netMode !== 'client') {
-        boss.hp -= 0.04;
-        if (boss.hp <= 0) {
-          boss.hp = 0;
-          boss.active = false;
-          boss.defeated = true;
-          boss.projectiles = [];
-          score += 300;
-          return;
-        }
+      boss.hp -= 0.04;
+      if (boss.hp <= 0) {
+        boss.hp = 0;
+        boss.active = false;
+        boss.defeated = true;
+        boss.projectiles = [];
+        score += 300;
+        return;
+      }
 
-        boss.attackCooldown++;
-        if (boss.attackCooldown > 110) {
-          boss.attackCooldown = 0;
-          boss.patternIndex = (boss.patternIndex + 1) % 4;
+      boss.attackCooldown++;
+      if (boss.attackCooldown > 110) {
+        boss.attackCooldown = 0;
+        boss.patternIndex = (boss.patternIndex + 1) % 4;
 
-          if (boss.patternIndex === 0) {
+        if (boss.patternIndex === 0) {
+          boss.projectiles.push({
+            type: 'green_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
+            vx: -5.5, vy: 2.5, radius: 11
+          });
+        } else if (boss.patternIndex === 1) {
+          [-2.2, 0, 2.2].forEach(spreadVy => {
             boss.projectiles.push({
-              type: 'green_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
-              vx: -5.5, vy: 2.5, radius: 11
+              type: 'blue_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
+              vx: -6.2, vy: spreadVy, radius: 10
             });
-          } else if (boss.patternIndex === 1) {
-            [-2.2, 0, 2.2].forEach(spreadVy => {
-              boss.projectiles.push({
-                type: 'blue_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
-                vx: -6.2, vy: spreadVy, radius: 10
-              });
-            });
-          } else if (boss.patternIndex === 2) {
-            boss.laser.charging = true;
-            boss.laser.timer = 0;
-            boss.laser.y = Math.random() < 0.5 ? groundY - 45 : groundY - 24;
-          } else if (boss.patternIndex === 3) {
-            boss.projectiles.push({
-              type: 'wave', x: boss.x - 10, y: groundY - 18,
-              vx: -7.2, vy: 0, width: 22, height: 20, color: '#e74c3c'
-            });
-          }
+          });
+        } else if (boss.patternIndex === 2) {
+          boss.laser.charging = true;
+          boss.laser.timer = 0;
+          boss.laser.y = syncRandom() < 0.5 ? groundY - 45 : groundY - 24;
+        } else if (boss.patternIndex === 3) {
+          boss.projectiles.push({
+            type: 'wave', x: boss.x - 10, y: groundY - 18,
+            vx: -7.2, vy: 0, width: 22, height: 20, color: '#e74c3c'
+          });
         }
       }
 
@@ -1714,7 +1723,7 @@
     function restartMatchAction() {
       if (netMode === 'solo') {
         hideAllScreens();
-        resetGameEngine();
+        resetGameEngine(Math.floor(Math.random() * 1000000));
         loop();
       } else if (netMode === 'host') {
         hostStartMatch();
@@ -1730,7 +1739,9 @@
       }
     }
 
-    function resetGameEngine() {
+    function resetGameEngine(customSeed) {
+      resetPRNG(customSeed || 123456);
+
       obstacles = [];
       meteors = [];
       platforms = [];
@@ -1741,6 +1752,7 @@
       groundScrollX = 0;
       waterScrollX = 0;
       isGameOver = false;
+      animFrameCounter = 0;
       allDeadCheckCooldown = 0;
       matchResultsShown = false;
 
@@ -1781,41 +1793,6 @@
       });
     }
 
-    // --- TRANSMISSÃO DO MUNDO DO HOST PARA CLIENTES ---
-    function broadcastWorldSync() {
-      if (netMode !== 'host') return;
-
-      broadcastToClients({
-        type: 'WORLD_SYNC',
-        score: score,
-        gameSpeed: gameSpeed,
-        obstacles: obstacles,
-        platforms: platforms,
-        meteors: meteors,
-        meteorState: meteorEvent.state,
-        biome: {
-          current: biomeSystem.current,
-          targetBiome: biomeSystem.targetBiome,
-          transitioning: biomeSystem.transitioning,
-          seamX: biomeSystem.seamX,
-          skyFactor: biomeSystem.skyFactor,
-          bannerText: biomeSystem.bannerText,
-          bannerTimer: biomeSystem.bannerTimer
-        },
-        boss: {
-          active: boss.active,
-          hp: boss.hp,
-          maxHp: boss.maxHp,
-          x: boss.x,
-          y: boss.y,
-          width: boss.width,
-          height: boss.height,
-          laser: boss.laser,
-          projectiles: boss.projectiles
-        }
-      });
-    }
-
     // --- Loop Principal ---
     function loop() {
       if (!isGameRunning) return;
@@ -1824,7 +1801,7 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       animFrameCounter++;
-      if (!isGameOver && netMode !== 'client') {
+      if (!isGameOver) {
         score += 0.15;
         gameSpeed += 0.00035;
       }
@@ -1851,14 +1828,8 @@
 
       checkAllPlayersDead();
 
-      // Sincroniza Dino e Mundo em alta velocidade
-      if (netMode !== 'solo') {
-        if (animFrameCounter % 2 === 0) {
-          syncLocalPlayerToNetwork();
-          if (netMode === 'host') {
-            broadcastWorldSync();
-          }
-        }
+      if (netMode !== 'solo' && animFrameCounter % 2 === 0) {
+        syncLocalPlayerToNetwork();
       }
 
       requestAnimationFrame(loop);
@@ -1952,7 +1923,7 @@
         updateLobbyUI();
 
         peer.on('connection', (conn) => {
-          conn.on('open', () => {
+          const registerClient = () => {
             const newColorIdx = (clientConnections.length + 1) % PLAYER_COLORS.length;
             const clientInfo = {
               id: conn.peer,
@@ -1975,7 +1946,9 @@
 
             broadcastLobbyState();
             updateLobbyUI();
-          });
+          };
+
+          conn.on('open', registerClient);
 
           conn.on('data', (data) => {
             handleHostIncomingData(conn.peer, data);
@@ -2120,47 +2093,22 @@
         renderLobbySettingsSummary();
       } else if (data.type === 'START_MATCH') {
         hideAllScreens();
-        resetGameEngine();
+        resetGameEngine(data.seed);
         isGameRunning = true;
         document.getElementById('statusRoomInfo').innerText = `Sala: ${roomCode} (Online)`;
         loop();
       } else if (data.type === 'REMOTE_PLAYER_UPDATE') {
         remotePlayers.set(data.player.id, data.player);
-      } else if (data.type === 'WORLD_SYNC') {
-        // RECEBE OBSTÁCULOS E MUNDO DO HOST EM TEMPO REAL
-        score = data.score;
-        gameSpeed = data.gameSpeed;
-        obstacles = data.obstacles;
-        platforms = data.platforms;
-        meteors = data.meteors;
-        meteorEvent.state = data.meteorState;
-
-        biomeSystem.current = data.biome.current;
-        biomeSystem.targetBiome = data.biome.targetBiome;
-        biomeSystem.transitioning = data.biome.transitioning;
-        biomeSystem.seamX = data.biome.seamX;
-        biomeSystem.skyFactor = data.biome.skyFactor;
-        biomeSystem.bannerText = data.biome.bannerText;
-        biomeSystem.bannerTimer = data.biome.bannerTimer;
-
-        boss.active = data.boss.active;
-        boss.hp = data.boss.hp;
-        boss.maxHp = data.boss.maxHp;
-        boss.x = data.boss.x;
-        boss.y = data.boss.y;
-        boss.width = data.boss.width;
-        boss.height = data.boss.height;
-        boss.laser = data.boss.laser;
-        boss.projectiles = data.boss.projectiles;
       } else if (data.type === 'MATCH_OVER') {
         showMatchResultsScreen(data.podium);
       }
     }
 
     function hostStartMatch() {
-      broadcastToClients({ type: 'START_MATCH' });
+      const generatedSeed = Math.floor(Math.random() * 1000000);
+      broadcastToClients({ type: 'START_MATCH', seed: generatedSeed });
       hideAllScreens();
-      resetGameEngine();
+      resetGameEngine(generatedSeed);
       isGameRunning = true;
       document.getElementById('statusRoomInfo').innerText = `Sala: ${roomCode} [Host]`;
       loop();
@@ -2291,7 +2239,7 @@
       netMode = 'solo';
       hideAllScreens();
       readModifiersFromUI();
-      resetGameEngine();
+      resetGameEngine(Math.floor(Math.random() * 1000000));
       isGameRunning = true;
       document.getElementById('statusRoomInfo').innerText = 'Modo: Solo Offline';
       loop();
