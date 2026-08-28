@@ -2,10 +2,10 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dino Jumper Multiplayer Online - Battle Royale</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Dino Jumper Multiplayer Mobile</title>
   
-  <!-- PeerJS para conexão P2P Online WebRTC sem precisar de servidor próprio -->
+  <!-- PeerJS WebRTC P2P -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 
   <style>
@@ -13,6 +13,9 @@
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
     }
 
     body {
@@ -21,65 +24,145 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: flex-start;
       min-height: 100vh;
       color: #333333;
-      user-select: none;
-      padding: 20px 10px;
+      padding: 10px 8px;
+      overflow-x: hidden;
+      touch-action: manipulation;
     }
 
     h1 {
-      font-size: 26px;
-      margin-bottom: 4px;
+      font-size: 20px;
+      margin-bottom: 2px;
       color: #2c3e50;
-      text-shadow: 1px 1px 0px #fff;
+      text-align: center;
     }
 
     .instructions {
-      font-size: 12px;
-      margin-bottom: 12px;
+      font-size: 11px;
+      margin-bottom: 8px;
       text-align: center;
-      line-height: 1.4;
+      line-height: 1.3;
       color: #555;
+      display: none; /* Oculta dicas de teclado em telas pequenas */
     }
 
-    /* Container Principal */
+    @media (min-width: 600px) {
+      h1 { font-size: 24px; }
+      .instructions { display: block; }
+    }
+
+    /* Container Principal Responsivo */
     .game-wrapper {
       position: relative;
       background: #ffffff;
-      padding: 12px;
+      padding: 8px;
       border-radius: 8px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
       display: flex;
       flex-direction: column;
       align-items: center;
+      width: 100%;
+      max-width: 800px;
     }
 
+    /* Canvas com Aspect Ratio Responsivo */
     #gameCanvas {
+      width: 100%;
+      max-width: 800px;
+      height: auto;
+      aspect-ratio: 800 / 260;
       background-color: #ffffff;
       border: 2px solid #34495e;
       border-radius: 4px;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
       display: block;
+      touch-action: none;
+    }
+
+    /* CONTROLES VIRTUAIS MOBILE (TOUCH GAMEPAD) */
+    .touch-controls {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      padding: 4px 6px;
+      touch-action: none;
+    }
+
+    .dpad-group {
+      display: flex;
+      gap: 6px;
+    }
+
+    .touch-btn {
+      background: #34495e;
+      color: #ffffff;
+      border: 2px solid #2c3e50;
+      border-radius: 8px;
+      font-family: inherit;
+      font-weight: bold;
+      font-size: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 0 #1a252f;
+      transition: transform 0.05s, background 0.05s;
+      touch-action: none;
+    }
+
+    .touch-btn:active, .touch-btn.active {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 #1a252f;
+      background: #2980b9;
+    }
+
+    .btn-dir {
+      width: 52px;
+      height: 52px;
+    }
+
+    .btn-jump {
+      width: 90px;
+      height: 54px;
+      background: #27ae60;
+      border-color: #1e8449;
+      box-shadow: 0 4px 0 #145a32;
+      font-size: 15px;
+    }
+
+    .btn-jump:active, .btn-jump.active {
+      background: #2ecc71;
+      box-shadow: 0 1px 0 #145a32;
+    }
+
+    @media (min-width: 500px) {
+      .btn-dir { width: 62px; height: 60px; font-size: 18px; }
+      .btn-jump { width: 110px; height: 60px; font-size: 16px; }
     }
 
     /* Modais e Telas de Overlay */
     .overlay-screen {
       position: absolute;
-      top: 12px;
-      left: 12px;
-      right: 12px;
-      bottom: 12px;
-      background: rgba(255, 255, 255, 0.95);
+      top: 8px;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      background: rgba(255, 255, 255, 0.96);
       border-radius: 4px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 20px;
+      padding: 12px;
       z-index: 50;
       backdrop-filter: blur(3px);
+      overflow-y: auto;
     }
 
     .hidden {
@@ -90,30 +173,32 @@
       background: #ffffff;
       border: 2px solid #2c3e50;
       border-radius: 6px;
-      padding: 18px 24px;
+      padding: 14px 16px;
       width: 100%;
-      max-width: 580px;
+      max-width: 540px;
       box-shadow: 0 4px 0 #2c3e50;
+      max-height: 95%;
+      overflow-y: auto;
     }
 
     .card h2 {
-      font-size: 18px;
-      margin-bottom: 12px;
+      font-size: 16px;
+      margin-bottom: 10px;
       text-align: center;
       color: #2c3e50;
       border-bottom: 2px dashed #bdc3c7;
-      padding-bottom: 6px;
+      padding-bottom: 4px;
     }
 
     .input-group {
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
     }
 
     .input-group label {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: bold;
       color: #34495e;
     }
@@ -129,18 +214,13 @@
       font-weight: bold;
     }
 
-    .input-group input[type="text"]:focus {
-      border-color: #2980b9;
-    }
-
-    /* Grid de Regras / Modificadores */
     .modifiers-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin: 14px 0;
+      gap: 6px;
+      margin: 10px 0;
       background: #f8f9fa;
-      padding: 10px;
+      padding: 8px;
       border-radius: 6px;
       border: 1px solid #e2e8f0;
     }
@@ -148,38 +228,36 @@
     .modifier-item {
       display: flex;
       align-items: center;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: bold;
       color: #2d3748;
       cursor: pointer;
     }
 
     .modifier-item input {
-      margin-right: 6px;
-      cursor: pointer;
+      margin-right: 5px;
       width: 15px;
       height: 15px;
     }
 
-    /* Botões */
+    /* Botões Padrão */
     .btn-row {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       width: 100%;
-      margin-top: 10px;
+      margin-top: 8px;
     }
 
     .btn {
       flex: 1;
       font-family: inherit;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: bold;
-      padding: 10px 14px;
+      padding: 9px 10px;
       border-radius: 4px;
       border: 2px solid transparent;
       cursor: pointer;
       text-align: center;
-      transition: all 0.1s ease;
       box-shadow: 0 3px 0 rgba(0,0,0,0.2);
     }
 
@@ -189,18 +267,10 @@
     }
 
     .btn-primary { background: #3498db; color: #fff; border-color: #2980b9; box-shadow: 0 3px 0 #1f618d; }
-    .btn-primary:hover { background: #2980b9; }
-
     .btn-success { background: #2ecc71; color: #fff; border-color: #27ae60; box-shadow: 0 3px 0 #1e8449; }
-    .btn-success:hover { background: #27ae60; }
-
     .btn-danger { background: #e74c3c; color: #fff; border-color: #c0392b; box-shadow: 0 3px 0 #922b21; }
-    .btn-danger:hover { background: #c0392b; }
-
     .btn-secondary { background: #95a5a6; color: #fff; border-color: #7f8c8d; box-shadow: 0 3px 0 #616a6b; }
-    .btn-secondary:hover { background: #7f8c8d; }
 
-    /* Sala & Pódio */
     .room-code-badge {
       background: #f1c40f;
       color: #2c3e50;
@@ -219,22 +289,21 @@
       background: #fdfefe;
       border: 1px solid #d5dbdb;
       border-radius: 4px;
-      padding: 8px;
-      max-height: 110px;
+      padding: 6px;
+      max-height: 90px;
       overflow-y: auto;
-      margin: 8px 0;
+      margin: 6px 0;
     }
 
     .player-tag {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 12px;
-      padding: 4px 6px;
+      font-size: 11px;
+      padding: 3px 4px;
       border-bottom: 1px solid #ecf0f1;
     }
 
-    .player-tag:last-child { border-bottom: none; }
     .player-color-dot {
       width: 10px;
       height: 10px;
@@ -246,60 +315,47 @@
     /* Pódio de Resultados */
     .podium-list {
       background: #f8f9fa;
-      border: 2px solid #bdc3c7;
+      border: 1px solid #bdc3c7;
       border-radius: 6px;
-      padding: 10px;
-      margin: 12px 0;
+      padding: 6px;
+      margin: 8px 0;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 4px;
+      max-height: 140px;
+      overflow-y: auto;
     }
 
     .podium-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 12px;
+      padding: 6px 8px;
       border-radius: 4px;
-      font-size: 13px;
+      font-size: 11px;
       font-weight: bold;
       background: #ffffff;
       border: 1px solid #e2e8f0;
     }
 
-    .podium-item.first {
-      background: #fff9db;
-      border-color: #f1c40f;
-      color: #b7791f;
-      font-size: 14px;
-    }
-
-    .podium-item.second {
-      background: #f1f2f6;
-      border-color: #bdc3c7;
-      color: #57606f;
-    }
-
-    .podium-item.third {
-      background: #fff0eb;
-      border-color: #e17055;
-      color: #d35400;
-    }
+    .podium-item.first { background: #fff9db; border-color: #f1c40f; color: #b7791f; }
+    .podium-item.second { background: #f1f2f6; border-color: #bdc3c7; color: #57606f; }
+    .podium-item.third { background: #fff0eb; border-color: #e17055; color: #d35400; }
 
     .hud-bar {
       width: 100%;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-top: 8px;
-      font-size: 12px;
+      margin-top: 6px;
+      font-size: 11px;
       font-weight: bold;
       color: #34495e;
     }
 
     .ping-badge {
-      font-size: 11px;
-      padding: 2px 6px;
+      font-size: 10px;
+      padding: 2px 5px;
       background: #e8f8f5;
       color: #16a085;
       border-radius: 3px;
@@ -308,12 +364,9 @@
 </head>
 <body>
 
-  <h1>🦖 DINO MULTIPLAYER ROYALE</h1>
+  <h1>🦖 DINO ROYALE MOBILE</h1>
   <p class="instructions">
-    <b>← / →</b> Mover &nbsp;|&nbsp; 
-    <b>↑ / Espaço</b> Pular (Duplo) &nbsp;|&nbsp; 
-    <b>↓</b> Agachar / Queda Rápida &nbsp;|&nbsp; 
-    Último sobrevivente vence!
+    <b>← / →</b> Mover &nbsp;|&nbsp; <b>↑ / Espaço</b> Pular &nbsp;|&nbsp; <b>↓</b> Agachar
   </p>
 
   <div class="game-wrapper">
@@ -324,10 +377,22 @@
       <div id="pingIndicator" class="ping-badge">P2P: Pronto</div>
     </div>
 
+    <!-- TOUCH GAMEPAD (CONTROLES NA TELA) -->
+    <div class="touch-controls" id="touchControlsArea">
+      <div class="dpad-group">
+        <button class="touch-btn btn-dir" id="btnTouchLeft" aria-label="Esquerda">◀</button>
+        <button class="touch-btn btn-dir" id="btnTouchDown" aria-label="Abaixar">▼</button>
+        <button class="touch-btn btn-dir" id="btnTouchRight" aria-label="Direita">▶</button>
+      </div>
+      <div>
+        <button class="touch-btn btn-jump" id="btnTouchJump" aria-label="Pular">🦘 PULAR</button>
+      </div>
+    </div>
+
     <!-- 1: MENU PRINCIPAL -->
     <div id="screenMainMenu" class="overlay-screen">
       <div class="card">
-        <h2>🎮 ESCOLHA O MODO DE JOGO</h2>
+        <h2>🎮 MODO DE JOGO</h2>
         
         <div class="input-group">
           <label for="inputPlayerName">SEU APELIDO:</label>
@@ -335,69 +400,53 @@
         </div>
 
         <div class="btn-row">
-          <button class="btn btn-primary" onclick="showCreateRoomScreen()">👑 Criar Sala Online</button>
-          <button class="btn btn-success" onclick="showJoinRoomScreen()">🔗 Entrar com Código</button>
+          <button class="btn btn-primary" onclick="showCreateRoomScreen()">👑 Criar Sala</button>
+          <button class="btn btn-success" onclick="showJoinRoomScreen()">🔗 Entrar</button>
         </div>
         <div class="btn-row">
-          <button class="btn btn-secondary" onclick="startSoloGame()">🕹️ Jogar Modo Solo (Offline)</button>
+          <button class="btn btn-secondary" onclick="startSoloGame()">🕹️ Jogar Solo</button>
         </div>
       </div>
     </div>
 
-    <!-- 2: CRIAR SALA & MODIFICADORES -->
+    <!-- 2: CRIAR SALA -->
     <div id="screenCreateRoom" class="overlay-screen hidden">
       <div class="card">
-        <h2>⚙️ CONFIGURAR SALA & REGRAS</h2>
+        <h2>⚙️ CONFIGURAR REGRAS</h2>
         
         <div class="modifiers-grid">
-          <label class="modifier-item">
-            <input type="checkbox" id="modMeteors" checked> ☄️ Chuva de Meteoros
-          </label>
-          <label class="modifier-item">
-            <input type="checkbox" id="modNyan" checked> 🌈 Nyan Cats Guiados
-          </label>
-          <label class="modifier-item">
-            <input type="checkbox" id="modFrogs" checked> 🐸 Sapos Saltadores
-          </label>
-          <label class="modifier-item">
-            <input type="checkbox" id="modFlyers" checked> 🦅 Pterodáctilos
-          </label>
-          <label class="modifier-item">
-            <input type="checkbox" id="modCactus" checked> 🌵 Cactos Clássicos
-          </label>
-          <label class="modifier-item">
-            <input type="checkbox" id="modWaterBiome" checked> 🌊 Bioma de Água
-          </label>
-          <label class="modifier-item">
-            <input type="checkbox" id="modBoss" checked> 👾 Batalha de Boss
-          </label>
-          <label class="modifier-item">
-            <input type="checkbox" id="modDoubleJump" checked> 🦘 Pulo Duplo
-          </label>
+          <label class="modifier-item"><input type="checkbox" id="modMeteors" checked> ☄️ Meteoros</label>
+          <label class="modifier-item"><input type="checkbox" id="modNyan" checked> 🌈 Nyan Cat</label>
+          <label class="modifier-item"><input type="checkbox" id="modFrogs" checked> 🐸 Sapos</label>
+          <label class="modifier-item"><input type="checkbox" id="modFlyers" checked> 🦅 Voadores</label>
+          <label class="modifier-item"><input type="checkbox" id="modCactus" checked> 🌵 Cactos</label>
+          <label class="modifier-item"><input type="checkbox" id="modWaterBiome" checked> 🌊 Bioma Água</label>
+          <label class="modifier-item"><input type="checkbox" id="modBoss" checked> 👾 Boss</label>
+          <label class="modifier-item"><input type="checkbox" id="modDoubleJump" checked> 🦘 Pulo Duplo</label>
         </div>
 
-        <div style="display:flex; gap: 10px;">
+        <div style="display:flex; gap: 8px;">
           <div class="input-group" style="flex:1;">
-            <label>VIDAS INICIAIS:</label>
+            <label>VIDAS:</label>
             <select id="modLives">
-              <option value="1">1 Vida (Morte Súbita)</option>
-              <option value="3" selected>3 Vidas (Padrão)</option>
-              <option value="5">5 Vidas (Casual)</option>
+              <option value="1">1 Vida</option>
+              <option value="3" selected>3 Vidas</option>
+              <option value="5">5 Vidas</option>
             </select>
           </div>
           <div class="input-group" style="flex:1;">
-            <label>VELOCIDADE INICIAL:</label>
+            <label>VELOCIDADE:</label>
             <select id="modSpeed">
-              <option value="4.5">Lento (4.5)</option>
-              <option value="5.5" selected>Normal (5.5)</option>
-              <option value="7.0">Turbo (7.0)</option>
+              <option value="4.5">Lento</option>
+              <option value="5.5" selected>Normal</option>
+              <option value="7.0">Turbo</option>
             </select>
           </div>
         </div>
 
         <div class="btn-row">
           <button class="btn btn-secondary" onclick="showMainMenu()">Voltar</button>
-          <button class="btn btn-primary" onclick="initHostRoom()">Criar Sala e Gerar Código</button>
+          <button class="btn btn-primary" onclick="initHostRoom()">Gerar Sala</button>
         </div>
       </div>
     </div>
@@ -408,77 +457,77 @@
         <h2>🔗 ENTRAR EM UMA SALA</h2>
         
         <div class="input-group">
-          <label for="inputRoomCode">DIGITE O CÓDIGO DA SALA (4 LETRAS):</label>
+          <label for="inputRoomCode">CÓDIGO DA SALA (4 LETRAS):</label>
           <input type="text" id="inputRoomCode" placeholder="EX: ABCD" maxlength="4">
         </div>
 
-        <div id="joinStatusMessage" style="font-size:12px; color:#e74c3c; margin-bottom:8px;"></div>
+        <div id="joinStatusMessage" style="font-size:11px; color:#e74c3c; margin-bottom:6px; min-height: 16px;"></div>
 
         <div class="btn-row">
           <button class="btn btn-secondary" onclick="showMainMenu()">Voltar</button>
-          <button class="btn btn-success" id="btnConnectRoom" onclick="joinRoomByCode()">Conectar na Sala</button>
+          <button class="btn btn-success" id="btnConnectRoom" onclick="joinRoomByCode()">Conectar</button>
         </div>
       </div>
     </div>
 
-    <!-- 4: LOBBY DE ESPERA -->
+    <!-- 4: LOBBY -->
     <div id="screenLobby" class="overlay-screen hidden">
       <div class="card">
         <h2>🎪 LOBBY DA SALA</h2>
         
-        <p style="font-size:12px; text-align:center;">Compartilhe este código com seus amigos:</p>
+        <p style="font-size:11px; text-align:center;">Toque no código ou no botão abaixo para compartilhar:</p>
         <div style="text-align:center;">
-          <span class="room-code-badge" id="lobbyRoomCode" title="Clique para copiar">----</span>
+          <span class="room-code-badge" id="lobbyRoomCode" onclick="shareRoomLink()">----</span>
         </div>
 
-        <p style="font-size:12px; font-weight:bold; margin-top:8px;">Jogadores na Sala (<span id="playerCount">1</span>):</p>
-        <div class="players-list" id="lobbyPlayersList">
-          <!-- Lista dinâmica -->
+        <div class="btn-row" style="margin-bottom: 6px;">
+          <button class="btn btn-primary" onclick="shareRoomLink()">📲 Compartilhar Link / WhatsApp</button>
         </div>
 
-        <div id="lobbyFeaturesSummary" style="font-size:11px; background:#f1f2f6; padding:6px; border-radius:4px; margin: 6px 0; color:#57606f;">
+        <p style="font-size:11px; font-weight:bold;">Jogadores (<span id="playerCount">1</span>):</p>
+        <div class="players-list" id="lobbyPlayersList"></div>
+
+        <div id="lobbyFeaturesSummary" style="font-size:10px; background:#f1f2f6; padding:5px; border-radius:4px; margin: 4px 0; color:#57606f;">
           Regras: Carregando...
         </div>
 
         <div class="btn-row">
-          <button class="btn btn-danger" onclick="leaveRoom()">Sair da Sala</button>
-          <button class="btn btn-success hidden" id="btnHostStart" onclick="hostStartMatch()">🚀 Começar Partida!</button>
+          <button class="btn btn-danger" onclick="leaveRoom()">Sair</button>
+          <button class="btn btn-success hidden" id="btnHostStart" onclick="hostStartMatch()">🚀 Iniciar Partida</button>
         </div>
-        <p id="clientWaitNotice" class="hidden" style="font-size:12px; text-align:center; margin-top:6px; color:#e67e22; font-weight:bold;">
+        <p id="clientWaitNotice" class="hidden" style="font-size:11px; text-align:center; margin-top:4px; color:#e67e22; font-weight:bold;">
           Aguardando o Dono da Sala iniciar...
         </p>
       </div>
     </div>
 
-    <!-- 5: TELA DE RESULTADOS FINAIS (QUANDO TODOS MORREM) -->
+    <!-- 5: RESULTADOS FINAIS -->
     <div id="screenMatchResults" class="overlay-screen hidden">
       <div class="card">
-        <h2>🏁 FIM DE PARTIDA - RESULTADOS</h2>
-        <p style="text-align:center; font-size:13px; font-weight:bold; color:#2c3e50; margin-bottom:6px;">
+        <h2>🏁 RESULTADOS DA PARTIDA</h2>
+        <p style="text-align:center; font-size:11px; font-weight:bold; color:#2c3e50; margin-bottom:4px;">
           Todos os Dinos foram eliminados!
         </p>
 
-        <div class="podium-list" id="podiumListContainer">
-          <!-- Resultados dinâmicos ordenados por distância -->
-        </div>
+        <div class="podium-list" id="podiumListContainer"></div>
 
         <div class="btn-row">
-          <button class="btn btn-secondary" onclick="leaveRoom()">Voltar ao Menu</button>
-          <button class="btn btn-primary hidden" id="btnRestartMatch" onclick="restartMatchAction()">🔄 Jogar Novamente</button>
+          <button class="btn btn-secondary" onclick="leaveRoom()">Menu</button>
+          <button class="btn btn-primary hidden" id="btnRestartMatch" onclick="restartMatchAction()">🔄 Jogar de Novo</button>
         </div>
-        <p id="clientWaitRestartNotice" class="hidden" style="font-size:11px; text-align:center; margin-top:6px; color:#7f8c8d;">
-          Aguardando o Dono reiniciar a partida...
+        <p id="clientWaitRestartNotice" class="hidden" style="font-size:10px; text-align:center; margin-top:4px; color:#7f8c8d;">
+          Aguardando o Dono reiniciar...
         </p>
       </div>
     </div>
   </div>
 
-<script>
+  <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
-    // --- Cores dos Dinos ---
+    // --- Paleta de Cores ---
     const PLAYER_COLORS = [
       { name: 'Clássico', hex: '#535353' },
       { name: 'Azul', hex: '#2980b9' },
@@ -521,7 +570,7 @@
     assets.cloud.src = 'nuvem.png';
     assets.mountain.src = 'montanha.png';
 
-    // --- Física e Jogo ---
+    // --- Configurações Gerais ---
     const groundY = 216;
     let gameSpeed = 5.5;
     let score = 0;
@@ -534,7 +583,6 @@
     let allDeadCheckCooldown = 0;
     let matchResultsShown = false;
 
-    // --- Modificadores de Partida ---
     let roomSettings = {
       enableMeteors: true,
       enableNyan: true,
@@ -548,7 +596,6 @@
       initialSpeed: 5.5
     };
 
-    // --- Multiplayer Networking ---
     let netMode = 'solo';
     let peer = null;
     let myPeerId = '';
@@ -561,7 +608,7 @@
 
     const keys = { left: false, right: false, down: false };
 
-    // --- SISTEMA DE BIOMAS ---
+    // --- BIOMAS ---
     const biomeSystem = {
       current: 'desert',
       targetBiome: 'desert',
@@ -695,9 +742,7 @@
         ctx.fillRect(rx + 6, ry + 5, 3, 3);
         ctx.fillRect(rx + p.width - 9, ry + 5, 3, 3);
 
-        if (p.x + p.width < -30) {
-          platforms.splice(i, 1);
-        }
+        if (p.x + p.width < -30) platforms.splice(i, 1);
       }
     }
 
@@ -836,7 +881,7 @@
       ctx.fillRect(x - 5, groundY - 4, 10, 2);
     }
 
-    // --- Dino Local (com física de morte realista) ---
+    // --- Dino Local (Física & Morte) ---
     const dino = {
       x: 80,
       y: groundY - 48,
@@ -1449,9 +1494,7 @@
         if (!isGameOver && dino.y < boss.laser.y + boss.laser.height && dino.y + dino.height > boss.laser.y) {
           dino.takeDamage();
         }
-        if (boss.laser.timer > 30) {
-          boss.laser.active = false;
-        }
+        if (boss.laser.timer > 30) boss.laser.active = false;
       }
 
       for (let i = boss.projectiles.length - 1; i >= 0; i--) {
@@ -1536,11 +1579,11 @@
       ctx.fillRect(barX, barY, barW * Math.max(0, boss.hp / boss.maxHp), barH);
     }
 
-    // --- HUD e Placar ---
+    // --- HUD ---
     function drawHUD() {
-      const heartSize = 20;
+      const heartSize = 18;
       for (let i = 0; i < dino.lives; i++) {
-        const hx = 16 + i * (heartSize + 4);
+        const hx = 14 + i * (heartSize + 4);
         const hy = 14;
         if (assets.heart.complete && assets.heart.naturalWidth !== 0) {
           ctx.drawImage(assets.heart, hx, hy, heartSize, heartSize);
@@ -1551,38 +1594,38 @@
       }
 
       ctx.fillStyle = '#535353';
-      ctx.font = '14px "Courier New", monospace';
+      ctx.font = '13px "Courier New", monospace';
       ctx.textAlign = 'right';
       const s = String(Math.floor(score)).padStart(5, '0') + 'm';
-      ctx.fillText(`DISTÂNCIA: ${s}`, canvas.width - 16, 26);
+      ctx.fillText(`DIST: ${s}`, canvas.width - 14, 24);
 
       if (netMode !== 'solo') {
         ctx.textAlign = 'left';
-        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.font = 'bold 9px "Courier New", monospace';
         ctx.fillStyle = '#2c3e50';
-        ctx.fillText(`🏆 JOGADORES:`, 16, 48);
+        ctx.fillText(`🏆 JOGADORES:`, 14, 46);
 
         let row = 0;
         ctx.fillStyle = isGameOver ? '#e74c3c' : '#27ae60';
-        ctx.fillText(`• ${myNickname} (Você): ${Math.floor(score)}m ${isGameOver ? '[MORTO]' : ''}`, 16, 62);
+        ctx.fillText(`• ${myNickname} (Você): ${Math.floor(score)}m ${isGameOver ? '[MORTO]' : ''}`, 14, 58);
         row++;
 
         remotePlayers.forEach((p) => {
           ctx.fillStyle = p.isDead ? '#e74c3c' : '#2980b9';
-          ctx.fillText(`• ${p.name}: ${Math.floor(p.score || 0)}m ${p.isDead ? '[MORTO]' : ''}`, 16, 62 + row * 12);
+          ctx.fillText(`• ${p.name}: ${Math.floor(p.score || 0)}m ${p.isDead ? '[MORTO]' : ''}`, 14, 58 + row * 11);
           row++;
         });
       }
     }
 
-    // --- Fim de Partida & Pódio ---
+    // --- Fim de Jogo & Pódio ---
     function checkAllPlayersDead() {
       if (matchResultsShown) return;
 
       if (netMode === 'solo') {
         if (isGameOver) {
           allDeadCheckCooldown++;
-          if (allDeadCheckCooldown > 75) {
+          if (allDeadCheckCooldown > 70) {
             showMatchResultsScreen();
           }
         }
@@ -1597,7 +1640,7 @@
 
         if (allDead) {
           allDeadCheckCooldown++;
-          if (allDeadCheckCooldown > 80) {
+          if (allDeadCheckCooldown > 75) {
             triggerMultiplayerEndGame();
           }
         }
@@ -1637,7 +1680,7 @@
       const listContainer = document.getElementById('podiumListContainer');
       listContainer.innerHTML = '';
 
-      const medals = ['🥇 1º LUGAR', '🥈 2º LUGAR', '🥉 3º LUGAR', '4º LUGAR', '5º LUGAR', '6º LUGAR'];
+      const medals = ['🥇 1º LUGAR', '🥈 2º LUGAR', '🥉 3º LUGAR', '4º LUGAR', '5º LUGAR'];
       const rankClasses = ['first', 'second', 'third'];
 
       podium.forEach((player, idx) => {
@@ -1647,11 +1690,11 @@
 
         item.innerHTML = `
           <div>
-            <span>${medals[idx] || (idx + 1) + 'º LUGAR'}:</span>
-            <span class="player-color-dot" style="background:${color.hex}; margin-left:6px;"></span>
+            <span>${medals[idx] || (idx + 1) + 'º'}:</span>
+            <span class="player-color-dot" style="background:${color.hex}; margin-left:4px;"></span>
             <b>${player.name}</b>
           </div>
-          <div>${player.score} metros</div>
+          <div>${player.score}m</div>
         `;
         listContainer.appendChild(item);
       });
@@ -1741,7 +1784,7 @@
       });
     }
 
-    // --- Loop Principal ---
+    // --- Loop ---
     function loop() {
       if (!isGameRunning) return;
 
@@ -1784,7 +1827,7 @@
     }
 
     // ==========================================
-    // --- REDE MULTIPLAYER P2P (PEERJS CORRIGIDO)
+    // --- REDE MULTIPLAYER P2P (PEERJS) --------
     // ==========================================
 
     function generateRoomCode() {
@@ -1796,24 +1839,15 @@
       return code;
     }
 
-    // Filtro inteligente para extrair apenas o código de 4 letras caso colem um link
     function cleanRoomCode(raw) {
       if (!raw) return '';
       let text = raw.trim().toUpperCase();
-      
-      // Se for uma URL com ?room=XXXX
       if (text.includes('ROOM=')) {
         const match = text.match(/ROOM=([A-Z0-9]{4})/i);
         if (match) return match[1].toUpperCase();
       }
-
-      // Remove caracteres que não são letras ou números
       text = text.replace(/[^A-Z0-9]/g, '');
-      
-      // Pega os últimos 4 caracteres se for maior (caso tenham colado um link longo)
-      if (text.length > 4) {
-        text = text.slice(-4);
-      }
+      if (text.length > 4) text = text.slice(-4);
       return text;
     }
 
@@ -1834,7 +1868,7 @@
 
       peer.on('open', (id) => {
         myPeerId = id;
-        document.getElementById('pingIndicator').innerText = '🟢 P2P: Conectado';
+        document.getElementById('pingIndicator').innerText = '🟢 P2P: Online';
         if (onReady) onReady(id);
       });
 
@@ -1843,11 +1877,11 @@
         document.getElementById('pingIndicator').innerText = '🔴 P2P: Offline';
 
         if (err.type === 'peer-unavailable') {
-          showJoinError('⚠️ Sala não encontrada! Verifique se o Dono já criou a sala.');
+          showJoinError('⚠️ Sala não encontrada! Verifique o código.');
         } else if (err.type === 'unavailable-id') {
-          showJoinError('⚠️ Esse código já está em uso por outro Host. Tente novamente.');
+          showJoinError('⚠️ Código já em uso. Tente novamente.');
         } else {
-          showJoinError('⚠️ Erro de conexão: ' + (err.type || 'Desconhecido'));
+          showJoinError('⚠️ Erro de conexão.');
         }
 
         if (onErrorCallback) onErrorCallback(err);
@@ -1861,7 +1895,6 @@
       if (btn) btn.disabled = false;
     }
 
-    // --- Host da Sala ---
     function initHostRoom() {
       readModifiersFromUI();
       myNickname = document.getElementById('inputPlayerName').value.trim() || 'HOST_DINO';
@@ -1918,8 +1951,8 @@
             updateLobbyUI();
           });
         });
-      }, (err) => {
-        alert('Erro ao criar sala. Tente clicar em Criar Sala novamente.');
+      }, () => {
+        alert('Erro ao criar sala. Tente novamente.');
         showMainMenu();
       });
     }
@@ -1981,13 +2014,12 @@
       return list;
     }
 
-    // --- Cliente / Entrar em Sala ---
     function joinRoomByCode() {
       const rawInput = document.getElementById('inputRoomCode').value;
       const targetCode = cleanRoomCode(rawInput);
 
       if (targetCode.length !== 4) {
-        showJoinError('Digite um código válido de 4 letras (Ex: ABCD).');
+        showJoinError('Código precisa ter 4 letras (Ex: ABCD).');
         return;
       }
 
@@ -1996,17 +2028,16 @@
       remotePlayers.clear();
 
       document.getElementById('joinStatusMessage').style.color = '#2980b9';
-      document.getElementById('joinStatusMessage').innerText = `Procurando sala [${targetCode}]...`;
+      document.getElementById('joinStatusMessage').innerText = `Buscando sala [${targetCode}]...`;
       document.getElementById('btnConnectRoom').disabled = true;
 
       initPeer(null, () => {
         const hostPeerId = 'dino-room-' + targetCode;
         hostConnection = peer.connect(hostPeerId, { reliable: true });
 
-        // Timeout de 6 segundos caso a sala não responda
         const connectTimeout = setTimeout(() => {
           if (!hostConnection || !hostConnection.open) {
-            showJoinError('⚠️ Tempo esgotado! Sala não respondeu ou não existe.');
+            showJoinError('⚠️ Sala não respondeu ou não existe.');
           }
         }, 6000);
 
@@ -2034,11 +2065,11 @@
           leaveRoom();
         });
 
-        hostConnection.on('error', (err) => {
+        hostConnection.on('error', () => {
           clearTimeout(connectTimeout);
           showJoinError('Erro ao conectar no Host.');
         });
-      }, (err) => {
+      }, () => {
         showJoinError('Não foi possível conectar ao servidor.');
       });
     }
@@ -2163,7 +2194,7 @@
             <span class="player-color-dot" style="background:${color.hex};"></span>
             <b>${p.name}</b>
           </div>
-          <span style="font-size:10px; color:#27ae60;">● Conectado</span>
+          <span style="font-size:9px; color:#27ae60;">● Conectado</span>
         `;
         container.appendChild(item);
       });
@@ -2171,18 +2202,17 @@
 
     function renderLobbySettingsSummary() {
       const sum = [];
-      if (roomSettings.enableMeteors) sum.push('☄️ Meteoro');
+      if (roomSettings.enableMeteors) sum.push('☄️ Meteoros');
       if (roomSettings.enableNyan) sum.push('🌈 Nyan');
       if (roomSettings.enableFrogs) sum.push('🐸 Sapos');
-      if (roomSettings.enableFlyers) sum.push('🦅 Pterodáctilos');
+      if (roomSettings.enableFlyers) sum.push('🦅 Voadores');
       if (roomSettings.enableWaterBiome) sum.push('🌊 Água');
       if (roomSettings.enableBoss) sum.push('👾 Boss');
-      if (roomSettings.enableDoubleJump) sum.push('🦘 Pulo Duplo');
+      if (roomSettings.enableDoubleJump) sum.push('🦘 Pulo 2x');
 
       document.getElementById('lobbyFeaturesSummary').innerHTML = `
         <b>Ativos:</b> ${sum.join(', ') || 'Nenhum'} | 
-        <b>Vidas:</b> ${roomSettings.initialLives} | 
-        <b>Velocidade:</b> ${roomSettings.initialSpeed}
+        <b>Vidas:</b> ${roomSettings.initialLives}
       `;
     }
 
@@ -2205,16 +2235,23 @@
       loop();
     }
 
-    // Clique para copiar link de convite ou código
-    document.getElementById('lobbyRoomCode').addEventListener('click', () => {
-      if (roomCode) {
-        const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
-        navigator.clipboard.writeText(inviteUrl);
-        alert(`Link de convite copiado!\n\nEnvie este link para seus amigos:\n${inviteUrl}`);
-      }
-    });
+    // Compartilhamento Mobile Nativo (WhatsApp / Telegram / Copiar)
+    function shareRoomLink() {
+      if (!roomCode) return;
+      const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
 
-    // Auto-preenche se o jogador abrir o link direto com ?room=XXXX
+      if (navigator.share) {
+        navigator.share({
+          title: 'Dino Royale Multiplayer',
+          text: `🦖 Venha jogar Dino Multiplayer comigo! Entre na sala com o código: ${roomCode}`,
+          url: inviteUrl
+        }).catch(() => {});
+      } else {
+        navigator.clipboard.writeText(inviteUrl);
+        alert(`Link copiado!\n\nEnvie este link para seus amigos:\n${inviteUrl}`);
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       const urlParams = new URLSearchParams(window.location.search);
       const roomParam = urlParams.get('room');
@@ -2224,16 +2261,52 @@
       }
     });
 
-    // --- Teclado ---
+    // ==========================================
+    // --- CONTROLES TOUCH MOBILE & MULTI-TOUCH -
+    // ==========================================
+    function setupTouchButton(elementId, onPress, onRelease) {
+      const btn = document.getElementById(elementId);
+      if (!btn) return;
+
+      const handlePress = (e) => {
+        e.preventDefault();
+        btn.classList.add('active');
+        if (onPress) onPress();
+      };
+
+      const handleRelease = (e) => {
+        e.preventDefault();
+        btn.classList.remove('active');
+        if (onRelease) onRelease();
+      };
+
+      btn.addEventListener('touchstart', handlePress, { passive: false });
+      btn.addEventListener('touchend', handleRelease, { passive: false });
+      btn.addEventListener('touchcancel', handleRelease, { passive: false });
+      
+      // Fallback para clique de mouse
+      btn.addEventListener('mousedown', handlePress);
+      btn.addEventListener('mouseup', handleRelease);
+      btn.addEventListener('mouseleave', handleRelease);
+    }
+
+    setupTouchButton('btnTouchLeft', () => { keys.left = true; }, () => { keys.left = false; });
+    setupTouchButton('btnTouchRight', () => { keys.right = true; }, () => { keys.right = false; });
+    setupTouchButton('btnTouchDown', () => { keys.down = true; }, () => { keys.down = false; });
+    setupTouchButton('btnTouchJump', () => { dino.jump(); }, null);
+
+    // Toque direto no Canvas para pular
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      dino.jump();
+    }, { passive: false });
+
+    // Controles de Teclado (PC)
     window.addEventListener('keydown', (e) => {
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
         e.preventDefault();
       }
-
-      if (e.code === 'ArrowUp' || e.code === 'Space') {
-        dino.jump();
-      }
-
+      if (e.code === 'ArrowUp' || e.code === 'Space') dino.jump();
       if (e.code === 'ArrowDown') keys.down = true;
       if (e.code === 'ArrowLeft') keys.left = true;
       if (e.code === 'ArrowRight') keys.right = true;
