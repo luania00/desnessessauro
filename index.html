@@ -45,7 +45,7 @@
       text-align: center;
       line-height: 1.3;
       color: #555;
-      display: none; /* Oculta dicas de teclado em telas pequenas */
+      display: none;
     }
 
     @media (min-width: 600px) {
@@ -53,7 +53,7 @@
       .instructions { display: block; }
     }
 
-    /* Container Principal Responsivo */
+    /* Container Responsivo */
     .game-wrapper {
       position: relative;
       background: #ffffff;
@@ -67,7 +67,7 @@
       max-width: 800px;
     }
 
-    /* Canvas com Aspect Ratio Responsivo */
+    /* Canvas */
     #gameCanvas {
       width: 100%;
       max-width: 800px;
@@ -82,7 +82,7 @@
       touch-action: none;
     }
 
-    /* CONTROLES VIRTUAIS MOBILE (TOUCH GAMEPAD) */
+    /* TOUCH GAMEPAD MOBILE */
     .touch-controls {
       width: 100%;
       display: flex;
@@ -128,7 +128,7 @@
     }
 
     .btn-jump {
-      width: 90px;
+      width: 95px;
       height: 54px;
       background: #27ae60;
       border-color: #1e8449;
@@ -146,7 +146,7 @@
       .btn-jump { width: 110px; height: 60px; font-size: 16px; }
     }
 
-    /* Modais e Telas de Overlay */
+    /* Modais e Overlays */
     .overlay-screen {
       position: absolute;
       top: 8px;
@@ -240,7 +240,6 @@
       height: 15px;
     }
 
-    /* Botões Padrão */
     .btn-row {
       display: flex;
       gap: 8px;
@@ -312,7 +311,6 @@
       margin-right: 6px;
     }
 
-    /* Pódio de Resultados */
     .podium-list {
       background: #f8f9fa;
       border: 1px solid #bdc3c7;
@@ -364,7 +362,7 @@
 </head>
 <body>
 
-  <h1>🦖 DINO ROYALE MOBILE</h1>
+  <h1>🦖 DINO ROYALE MULTIPLAYER</h1>
   <p class="instructions">
     <b>← / →</b> Mover &nbsp;|&nbsp; <b>↑ / Espaço</b> Pular &nbsp;|&nbsp; <b>↓</b> Agachar
   </p>
@@ -377,7 +375,7 @@
       <div id="pingIndicator" class="ping-badge">P2P: Pronto</div>
     </div>
 
-    <!-- TOUCH GAMEPAD (CONTROLES NA TELA) -->
+    <!-- TOUCH CONTROLS -->
     <div class="touch-controls" id="touchControlsArea">
       <div class="dpad-group">
         <button class="touch-btn btn-dir" id="btnTouchLeft" aria-label="Esquerda">◀</button>
@@ -527,7 +525,7 @@
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
-    // --- Paleta de Cores ---
+    // --- Cores dos Jogadores ---
     const PLAYER_COLORS = [
       { name: 'Clássico', hex: '#535353' },
       { name: 'Azul', hex: '#2980b9' },
@@ -570,7 +568,7 @@
     assets.cloud.src = 'nuvem.png';
     assets.mountain.src = 'montanha.png';
 
-    // --- Configurações Gerais ---
+    // --- Física e Jogo ---
     const groundY = 216;
     let gameSpeed = 5.5;
     let score = 0;
@@ -632,10 +630,6 @@
         } else {
           this.bannerText = '🏜️ RETORNANDO AO DESERTO...';
           this.bannerTimer = 180;
-        }
-
-        if (netMode === 'host') {
-          broadcastToClients({ type: 'BIOME_TRANSITION', toBiome: toBiome });
         }
       },
 
@@ -699,8 +693,8 @@
       }
     };
 
-    // --- Plataformas ---
-    const platforms = [];
+    // --- Plataformas Aquáticas ---
+    let platforms = [];
     let platformTimer = 0;
 
     function spawnPlatform(customX = canvas.width, customY = null, customW = null) {
@@ -881,7 +875,7 @@
       ctx.fillRect(x - 5, groundY - 4, 10, 2);
     }
 
-    // --- Dino Local (Física & Morte) ---
+    // --- Dino Local ---
     const dino = {
       x: 80,
       y: groundY - 48,
@@ -1072,7 +1066,7 @@
       }
     };
 
-    // --- Outros Jogadores Remotos ---
+    // --- Jogadores Remotos ---
     function drawRemotePlayers() {
       remotePlayers.forEach((player) => {
         if (player.id === myPeerId) return;
@@ -1114,8 +1108,8 @@
       });
     }
 
-    // --- Inimigos ---
-    const obstacles = [];
+    // --- Obstáculos Sincronizados ---
+    let obstacles = [];
     let obstacleTimer = 0;
     let minObstacleDistance = 80;
 
@@ -1201,6 +1195,7 @@
     }
 
     function updateObstacles() {
+      // Apenas o Host e o Solo geram obstáculos aleatórios
       if (netMode !== 'client') {
         obstacleTimer++;
         if (obstacleTimer > minObstacleDistance && Math.random() < 0.045) {
@@ -1218,14 +1213,14 @@
             const targetY = dino.y + (dino.height / 2) - (obs.height / 2);
             const dy = targetY - obs.y;
             obs.y += Math.sign(dy) * Math.min(Math.abs(dy), 2.2);
-            if (obs.x <= obs.lockDistance) {
+            if (obs.x <= (obs.lockDistance || (dino.x + 220))) {
               obs.isTracking = false;
               obs.speed = gameSpeed + 3.0;
             }
           }
-          obs.x -= obs.speed;
+          obs.x -= (obs.speed || (gameSpeed + 1.2));
         } else {
-          obs.x -= (gameSpeed + obs.speedOffset);
+          obs.x -= (gameSpeed + (obs.speedOffset || 0));
         }
 
         const renderObsX = Math.round(obs.x);
@@ -1248,7 +1243,7 @@
             ctx.fillRect(renderObsX, renderObsY, obs.width, obs.height);
           }
         } else if (obs.type === 'frog') {
-          const fastWobble = Math.sin(animFrameCounter * 0.28 + obs.wobbleOffset) * 0.16;
+          const fastWobble = Math.sin(animFrameCounter * 0.28 + (obs.wobbleOffset || 0)) * 0.16;
           ctx.save();
           ctx.translate(renderObsX + obs.width / 2, groundY + 2);
           ctx.rotate(-0.08 + fastWobble);
@@ -1290,8 +1285,8 @@
       }
     }
 
-    // --- Meteoros ---
-    const meteors = [];
+    // --- Meteoros Sincronizados ---
+    let meteors = [];
     const meteorEvent = {
       state: 'idle',
       nextShowerDist: 220,
@@ -1428,7 +1423,7 @@
     };
 
     function checkBossTrigger() {
-      if (!roomSettings.enableBoss) return;
+      if (!roomSettings.enableBoss || netMode === 'client') return;
       if (score >= 1000 && !boss.active && !boss.defeated) {
         boss.active = true;
         boss.hp = 100;
@@ -1443,42 +1438,44 @@
       if (boss.x > boss.targetX) boss.x -= 2.0;
       boss.y = boss.baseY + Math.sin(animFrameCounter * boss.speedY) * 45;
 
-      boss.hp -= 0.04;
-      if (boss.hp <= 0) {
-        boss.hp = 0;
-        boss.active = false;
-        boss.defeated = true;
-        boss.projectiles = [];
-        score += 300;
-        return;
-      }
+      if (netMode !== 'client') {
+        boss.hp -= 0.04;
+        if (boss.hp <= 0) {
+          boss.hp = 0;
+          boss.active = false;
+          boss.defeated = true;
+          boss.projectiles = [];
+          score += 300;
+          return;
+        }
 
-      boss.attackCooldown++;
-      if (boss.attackCooldown > 110) {
-        boss.attackCooldown = 0;
-        boss.patternIndex = (boss.patternIndex + 1) % 4;
+        boss.attackCooldown++;
+        if (boss.attackCooldown > 110) {
+          boss.attackCooldown = 0;
+          boss.patternIndex = (boss.patternIndex + 1) % 4;
 
-        if (boss.patternIndex === 0) {
-          boss.projectiles.push({
-            type: 'green_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
-            vx: -5.5, vy: 2.5, radius: 11
-          });
-        } else if (boss.patternIndex === 1) {
-          [-2.2, 0, 2.2].forEach(spreadVy => {
+          if (boss.patternIndex === 0) {
             boss.projectiles.push({
-              type: 'blue_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
-              vx: -6.2, vy: spreadVy, radius: 10
+              type: 'green_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
+              vx: -5.5, vy: 2.5, radius: 11
             });
-          });
-        } else if (boss.patternIndex === 2) {
-          boss.laser.charging = true;
-          boss.laser.timer = 0;
-          boss.laser.y = Math.random() < 0.5 ? groundY - 45 : groundY - 24;
-        } else if (boss.patternIndex === 3) {
-          boss.projectiles.push({
-            type: 'wave', x: boss.x - 10, y: groundY - 18,
-            vx: -7.2, vy: 0, width: 22, height: 20, color: '#e74c3c'
-          });
+          } else if (boss.patternIndex === 1) {
+            [-2.2, 0, 2.2].forEach(spreadVy => {
+              boss.projectiles.push({
+                type: 'blue_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
+                vx: -6.2, vy: spreadVy, radius: 10
+              });
+            });
+          } else if (boss.patternIndex === 2) {
+            boss.laser.charging = true;
+            boss.laser.timer = 0;
+            boss.laser.y = Math.random() < 0.5 ? groundY - 45 : groundY - 24;
+          } else if (boss.patternIndex === 3) {
+            boss.projectiles.push({
+              type: 'wave', x: boss.x - 10, y: groundY - 18,
+              vx: -7.2, vy: 0, width: 22, height: 20, color: '#e74c3c'
+            });
+          }
         }
       }
 
@@ -1734,9 +1731,9 @@
     }
 
     function resetGameEngine() {
-      obstacles.length = 0;
-      meteors.length = 0;
-      platforms.length = 0;
+      obstacles = [];
+      meteors = [];
+      platforms = [];
       score = 0;
       gameSpeed = parseFloat(roomSettings.initialSpeed) || 5.5;
       obstacleTimer = 0;
@@ -1784,7 +1781,42 @@
       });
     }
 
-    // --- Loop ---
+    // --- TRANSMISSÃO DO MUNDO DO HOST PARA CLIENTES ---
+    function broadcastWorldSync() {
+      if (netMode !== 'host') return;
+
+      broadcastToClients({
+        type: 'WORLD_SYNC',
+        score: score,
+        gameSpeed: gameSpeed,
+        obstacles: obstacles,
+        platforms: platforms,
+        meteors: meteors,
+        meteorState: meteorEvent.state,
+        biome: {
+          current: biomeSystem.current,
+          targetBiome: biomeSystem.targetBiome,
+          transitioning: biomeSystem.transitioning,
+          seamX: biomeSystem.seamX,
+          skyFactor: biomeSystem.skyFactor,
+          bannerText: biomeSystem.bannerText,
+          bannerTimer: biomeSystem.bannerTimer
+        },
+        boss: {
+          active: boss.active,
+          hp: boss.hp,
+          maxHp: boss.maxHp,
+          x: boss.x,
+          y: boss.y,
+          width: boss.width,
+          height: boss.height,
+          laser: boss.laser,
+          projectiles: boss.projectiles
+        }
+      });
+    }
+
+    // --- Loop Principal ---
     function loop() {
       if (!isGameRunning) return;
 
@@ -1792,7 +1824,7 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       animFrameCounter++;
-      if (!isGameOver) {
+      if (!isGameOver && netMode !== 'client') {
         score += 0.15;
         gameSpeed += 0.00035;
       }
@@ -1819,8 +1851,14 @@
 
       checkAllPlayersDead();
 
-      if (netMode !== 'solo' && animFrameCounter % 3 === 0) {
-        syncLocalPlayerToNetwork();
+      // Sincroniza Dino e Mundo em alta velocidade
+      if (netMode !== 'solo') {
+        if (animFrameCounter % 2 === 0) {
+          syncLocalPlayerToNetwork();
+          if (netMode === 'host') {
+            broadcastWorldSync();
+          }
+        }
       }
 
       requestAnimationFrame(loop);
@@ -2088,8 +2126,32 @@
         loop();
       } else if (data.type === 'REMOTE_PLAYER_UPDATE') {
         remotePlayers.set(data.player.id, data.player);
-      } else if (data.type === 'BIOME_TRANSITION') {
-        biomeSystem.startTransition(data.toBiome);
+      } else if (data.type === 'WORLD_SYNC') {
+        // RECEBE OBSTÁCULOS E MUNDO DO HOST EM TEMPO REAL
+        score = data.score;
+        gameSpeed = data.gameSpeed;
+        obstacles = data.obstacles;
+        platforms = data.platforms;
+        meteors = data.meteors;
+        meteorEvent.state = data.meteorState;
+
+        biomeSystem.current = data.biome.current;
+        biomeSystem.targetBiome = data.biome.targetBiome;
+        biomeSystem.transitioning = data.biome.transitioning;
+        biomeSystem.seamX = data.biome.seamX;
+        biomeSystem.skyFactor = data.biome.skyFactor;
+        biomeSystem.bannerText = data.biome.bannerText;
+        biomeSystem.bannerTimer = data.biome.bannerTimer;
+
+        boss.active = data.boss.active;
+        boss.hp = data.boss.hp;
+        boss.maxHp = data.boss.maxHp;
+        boss.x = data.boss.x;
+        boss.y = data.boss.y;
+        boss.width = data.boss.width;
+        boss.height = data.boss.height;
+        boss.laser = data.boss.laser;
+        boss.projectiles = data.boss.projectiles;
       } else if (data.type === 'MATCH_OVER') {
         showMatchResultsScreen(data.podium);
       }
@@ -2235,7 +2297,6 @@
       loop();
     }
 
-    // Compartilhamento Mobile Nativo (WhatsApp / Telegram / Copiar)
     function shareRoomLink() {
       if (!roomCode) return;
       const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
@@ -2261,9 +2322,7 @@
       }
     });
 
-    // ==========================================
-    // --- CONTROLES TOUCH MOBILE & MULTI-TOUCH -
-    // ==========================================
+    // --- CONTROLES TOUCH ---
     function setupTouchButton(elementId, onPress, onRelease) {
       const btn = document.getElementById(elementId);
       if (!btn) return;
@@ -2284,7 +2343,6 @@
       btn.addEventListener('touchend', handleRelease, { passive: false });
       btn.addEventListener('touchcancel', handleRelease, { passive: false });
       
-      // Fallback para clique de mouse
       btn.addEventListener('mousedown', handlePress);
       btn.addEventListener('mouseup', handleRelease);
       btn.addEventListener('mouseleave', handleRelease);
@@ -2295,13 +2353,12 @@
     setupTouchButton('btnTouchDown', () => { keys.down = true; }, () => { keys.down = false; });
     setupTouchButton('btnTouchJump', () => { dino.jump(); }, null);
 
-    // Toque direto no Canvas para pular
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       dino.jump();
     }, { passive: false });
 
-    // Controles de Teclado (PC)
+    // Teclado (PC)
     window.addEventListener('keydown', (e) => {
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
         e.preventDefault();
