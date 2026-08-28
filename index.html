@@ -473,7 +473,7 @@
     </div>
   </div>
 
-  <script>
+<script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
@@ -549,7 +549,7 @@
     };
 
     // --- Multiplayer Networking ---
-    let netMode = 'solo'; // 'solo' | 'host' | 'client'
+    let netMode = 'solo';
     let peer = null;
     let myPeerId = '';
     let roomCode = '';
@@ -561,7 +561,7 @@
 
     const keys = { left: false, right: false, down: false };
 
-    // --- SISTEMA DE TRANSIÇÃO SUAVE DE BIOMAS ---
+    // --- SISTEMA DE BIOMAS ---
     const biomeSystem = {
       current: 'desert',
       targetBiome: 'desert',
@@ -652,7 +652,7 @@
       }
     };
 
-    // --- Plataformas Aquáticas ---
+    // --- Plataformas ---
     const platforms = [];
     let platformTimer = 0;
 
@@ -701,7 +701,7 @@
       }
     }
 
-    // --- Nuvens & Montanhas ---
+    // --- Nuvens e Montanhas ---
     const clouds = [
       { x: 100, y: 35, width: 64, height: 24, speedFactor: 0.12 },
       { x: 380, y: 65, width: 75, height: 28, speedFactor: 0.16 },
@@ -877,7 +877,6 @@
         if (this.lives <= 0) {
           this.lives = 0;
           isGameOver = true;
-          // Impulso de física para a morte
           this.vy = -6.5;
           this.vx = -2.0;
           this.deadRotSpeed = -0.09;
@@ -894,20 +893,18 @@
       },
 
       update() {
-        // FÍSICA QUANDO MORTO (Cai com gravidade e rola até o chão)
         if (isGameOver) {
           this.vy += this.gravity * 0.9;
           this.y += this.vy;
           this.x += this.vx;
           this.deadRotation += this.deadRotSpeed;
 
-          // Chão ao morrer
           if (this.y >= groundY - this.normalHeight + 8) {
             this.y = groundY - this.normalHeight + 8;
             this.vy = 0;
             this.vx = 0;
             this.deadRotSpeed = 0;
-            this.deadRotation = -Math.PI / 2; // Fica deitado no chão
+            this.deadRotation = -Math.PI / 2;
           }
           return;
         }
@@ -1015,7 +1012,6 @@
           ctx.translate(-(rx + this.width / 2), -(ry + this.height / 2));
         }
 
-        // Tag com nome acima do dino
         ctx.fillStyle = '#2c3e50';
         ctx.font = 'bold 10px "Courier New", monospace';
         ctx.textAlign = 'center';
@@ -1031,7 +1027,7 @@
       }
     };
 
-    // --- Outros Jogadores Conectados ---
+    // --- Outros Jogadores Remotos ---
     function drawRemotePlayers() {
       remotePlayers.forEach((player) => {
         if (player.id === myPeerId) return;
@@ -1564,7 +1560,7 @@
         ctx.textAlign = 'left';
         ctx.font = 'bold 10px "Courier New", monospace';
         ctx.fillStyle = '#2c3e50';
-        ctx.fillText(`🏆 VIVOS NA PARTIDA:`, 16, 48);
+        ctx.fillText(`🏆 JOGADORES:`, 16, 48);
 
         let row = 0;
         ctx.fillStyle = isGameOver ? '#e74c3c' : '#27ae60';
@@ -1579,14 +1575,14 @@
       }
     }
 
-    // --- Verificação de Fim de Partida de Todos os Jogadores ---
+    // --- Fim de Partida & Pódio ---
     function checkAllPlayersDead() {
       if (matchResultsShown) return;
 
       if (netMode === 'solo') {
         if (isGameOver) {
           allDeadCheckCooldown++;
-          if (allDeadCheckCooldown > 75) { // Espera o dino cair no chão
+          if (allDeadCheckCooldown > 75) {
             showMatchResultsScreen();
           }
         }
@@ -1616,7 +1612,6 @@
         allResults.push({ name: p.name, score: Math.floor(p.score || 0), colorIndex: p.colorIndex });
       });
 
-      // Ordena por maior distância
       allResults.sort((a, b) => b.score - a.score);
 
       broadcastToClients({
@@ -1686,7 +1681,6 @@
       }
     }
 
-    // --- Game Over ---
     function gameOver() {
       isGameOver = true;
       if (score > highScore) highScore = score;
@@ -1767,11 +1761,8 @@
       updateAndDrawPlatforms();
 
       checkBossTrigger();
-      
-      // Atualiza dino (continua caindo mesmo morto!)
       dino.update();
       
-      // Renderiza dinos
       drawRemotePlayers();
       dino.draw();
 
@@ -1783,7 +1774,6 @@
       drawHUD();
       biomeSystem.drawBanner();
 
-      // Checa fim de partida
       checkAllPlayersDead();
 
       if (netMode !== 'solo' && animFrameCounter % 3 === 0) {
@@ -1794,7 +1784,7 @@
     }
 
     // ==========================================
-    // --- REDE MULTIPLAYER P2P (PEERJS) --------
+    // --- REDE MULTIPLAYER P2P (PEERJS CORRIGIDO)
     // ==========================================
 
     function generateRoomCode() {
@@ -1806,8 +1796,31 @@
       return code;
     }
 
-    function initPeer(customId, onReady) {
-      if (peer) peer.destroy();
+    // Filtro inteligente para extrair apenas o código de 4 letras caso colem um link
+    function cleanRoomCode(raw) {
+      if (!raw) return '';
+      let text = raw.trim().toUpperCase();
+      
+      // Se for uma URL com ?room=XXXX
+      if (text.includes('ROOM=')) {
+        const match = text.match(/ROOM=([A-Z0-9]{4})/i);
+        if (match) return match[1].toUpperCase();
+      }
+
+      // Remove caracteres que não são letras ou números
+      text = text.replace(/[^A-Z0-9]/g, '');
+      
+      // Pega os últimos 4 caracteres se for maior (caso tenham colado um link longo)
+      if (text.length > 4) {
+        text = text.slice(-4);
+      }
+      return text;
+    }
+
+    function initPeer(customId, onReady, onErrorCallback) {
+      if (peer) {
+        try { peer.destroy(); } catch(e) {}
+      }
 
       peer = new Peer(customId, {
         debug: 1,
@@ -1821,17 +1834,34 @@
 
       peer.on('open', (id) => {
         myPeerId = id;
-        document.getElementById('pingIndicator').innerText = '🟢 P2P: Online';
+        document.getElementById('pingIndicator').innerText = '🟢 P2P: Conectado';
         if (onReady) onReady(id);
       });
 
       peer.on('error', (err) => {
-        console.error('Peer error:', err);
-        document.getElementById('pingIndicator').innerText = '🔴 Erro P2P';
-        alert('Erro de conexão P2P: ' + err.type);
+        console.warn('Peer error:', err.type, err);
+        document.getElementById('pingIndicator').innerText = '🔴 P2P: Offline';
+
+        if (err.type === 'peer-unavailable') {
+          showJoinError('⚠️ Sala não encontrada! Verifique se o Dono já criou a sala.');
+        } else if (err.type === 'unavailable-id') {
+          showJoinError('⚠️ Esse código já está em uso por outro Host. Tente novamente.');
+        } else {
+          showJoinError('⚠️ Erro de conexão: ' + (err.type || 'Desconhecido'));
+        }
+
+        if (onErrorCallback) onErrorCallback(err);
       });
     }
 
+    function showJoinError(msg) {
+      const el = document.getElementById('joinStatusMessage');
+      if (el) el.innerText = msg;
+      const btn = document.getElementById('btnConnectRoom');
+      if (btn) btn.disabled = false;
+    }
+
+    // --- Host da Sala ---
     function initHostRoom() {
       readModifiersFromUI();
       myNickname = document.getElementById('inputPlayerName').value.trim() || 'HOST_DINO';
@@ -1888,6 +1918,9 @@
             updateLobbyUI();
           });
         });
+      }, (err) => {
+        alert('Erro ao criar sala. Tente clicar em Criar Sala novamente.');
+        showMainMenu();
       });
     }
 
@@ -1948,11 +1981,13 @@
       return list;
     }
 
-    // --- Cliente ---
+    // --- Cliente / Entrar em Sala ---
     function joinRoomByCode() {
-      const targetCode = document.getElementById('inputRoomCode').value.trim().toUpperCase();
+      const rawInput = document.getElementById('inputRoomCode').value;
+      const targetCode = cleanRoomCode(rawInput);
+
       if (targetCode.length !== 4) {
-        document.getElementById('joinStatusMessage').innerText = 'Digite um código válido de 4 caracteres.';
+        showJoinError('Digite um código válido de 4 letras (Ex: ABCD).');
         return;
       }
 
@@ -1960,14 +1995,23 @@
       netMode = 'client';
       remotePlayers.clear();
 
-      document.getElementById('joinStatusMessage').innerText = 'Conectando à sala...';
+      document.getElementById('joinStatusMessage').style.color = '#2980b9';
+      document.getElementById('joinStatusMessage').innerText = `Procurando sala [${targetCode}]...`;
       document.getElementById('btnConnectRoom').disabled = true;
 
       initPeer(null, () => {
         const hostPeerId = 'dino-room-' + targetCode;
         hostConnection = peer.connect(hostPeerId, { reliable: true });
 
+        // Timeout de 6 segundos caso a sala não responda
+        const connectTimeout = setTimeout(() => {
+          if (!hostConnection || !hostConnection.open) {
+            showJoinError('⚠️ Tempo esgotado! Sala não respondeu ou não existe.');
+          }
+        }, 6000);
+
         hostConnection.on('open', () => {
+          clearTimeout(connectTimeout);
           document.getElementById('btnConnectRoom').disabled = false;
           roomCode = targetCode;
           showLobbyScreen();
@@ -1986,14 +2030,16 @@
         });
 
         hostConnection.on('close', () => {
-          alert('Conexão encerrada pelo Host.');
+          alert('Conexão encerrada pelo Dono da Sala.');
           leaveRoom();
         });
 
         hostConnection.on('error', (err) => {
-          document.getElementById('joinStatusMessage').innerText = 'Não foi possível encontrar a sala.';
-          document.getElementById('btnConnectRoom').disabled = false;
+          clearTimeout(connectTimeout);
+          showJoinError('Erro ao conectar no Host.');
         });
+      }, (err) => {
+        showJoinError('Não foi possível conectar ao servidor.');
       });
     }
 
@@ -2070,6 +2116,7 @@
       hideAllScreens();
       document.getElementById('screenJoinRoom').classList.remove('hidden');
       document.getElementById('joinStatusMessage').innerText = '';
+      document.getElementById('btnConnectRoom').disabled = false;
     }
 
     function showLobbyScreen() {
@@ -2140,7 +2187,9 @@
     }
 
     function leaveRoom() {
-      if (peer) peer.destroy();
+      if (peer) {
+        try { peer.destroy(); } catch(e) {}
+      }
       netMode = 'solo';
       showMainMenu();
     }
@@ -2156,10 +2205,22 @@
       loop();
     }
 
+    // Clique para copiar link de convite ou código
     document.getElementById('lobbyRoomCode').addEventListener('click', () => {
       if (roomCode) {
-        navigator.clipboard.writeText(roomCode);
-        alert(`Código ${roomCode} copiado com sucesso!`);
+        const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+        navigator.clipboard.writeText(inviteUrl);
+        alert(`Link de convite copiado!\n\nEnvie este link para seus amigos:\n${inviteUrl}`);
+      }
+    });
+
+    // Auto-preenche se o jogador abrir o link direto com ?room=XXXX
+    window.addEventListener('DOMContentLoaded', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const roomParam = urlParams.get('room');
+      if (roomParam) {
+        showJoinRoomScreen();
+        document.getElementById('inputRoomCode').value = cleanRoomCode(roomParam);
       }
     });
 
