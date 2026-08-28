@@ -1,0 +1,2188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dino Jumper Multiplayer Online - Battle Royale</title>
+  
+  <!-- PeerJS para conexão P2P Online WebRTC sem precisar de servidor próprio -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: #eef2f5;
+      font-family: 'Courier New', Courier, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: #333333;
+      user-select: none;
+      padding: 20px 10px;
+    }
+
+    h1 {
+      font-size: 26px;
+      margin-bottom: 4px;
+      color: #2c3e50;
+      text-shadow: 1px 1px 0px #fff;
+    }
+
+    .instructions {
+      font-size: 12px;
+      margin-bottom: 12px;
+      text-align: center;
+      line-height: 1.4;
+      color: #555;
+    }
+
+    /* Container Principal */
+    .game-wrapper {
+      position: relative;
+      background: #ffffff;
+      padding: 12px;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    #gameCanvas {
+      background-color: #ffffff;
+      border: 2px solid #34495e;
+      border-radius: 4px;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      display: block;
+    }
+
+    /* Modais e Telas de Overlay */
+    .overlay-screen {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 50;
+      backdrop-filter: blur(3px);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 2px solid #2c3e50;
+      border-radius: 6px;
+      padding: 18px 24px;
+      width: 100%;
+      max-width: 580px;
+      box-shadow: 0 4px 0 #2c3e50;
+    }
+
+    .card h2 {
+      font-size: 18px;
+      margin-bottom: 12px;
+      text-align: center;
+      color: #2c3e50;
+      border-bottom: 2px dashed #bdc3c7;
+      padding-bottom: 6px;
+    }
+
+    .input-group {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .input-group label {
+      font-size: 12px;
+      font-weight: bold;
+      color: #34495e;
+    }
+
+    .input-group input[type="text"], .input-group select {
+      font-family: inherit;
+      padding: 8px 10px;
+      font-size: 14px;
+      border: 2px solid #bdc3c7;
+      border-radius: 4px;
+      outline: none;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+
+    .input-group input[type="text"]:focus {
+      border-color: #2980b9;
+    }
+
+    /* Grid de Regras / Modificadores */
+    .modifiers-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 14px 0;
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
+    }
+
+    .modifier-item {
+      display: flex;
+      align-items: center;
+      font-size: 11px;
+      font-weight: bold;
+      color: #2d3748;
+      cursor: pointer;
+    }
+
+    .modifier-item input {
+      margin-right: 6px;
+      cursor: pointer;
+      width: 15px;
+      height: 15px;
+    }
+
+    /* Botões */
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    .btn {
+      flex: 1;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: bold;
+      padding: 10px 14px;
+      border-radius: 4px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.1s ease;
+      box-shadow: 0 3px 0 rgba(0,0,0,0.2);
+    }
+
+    .btn:active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+    }
+
+    .btn-primary { background: #3498db; color: #fff; border-color: #2980b9; box-shadow: 0 3px 0 #1f618d; }
+    .btn-primary:hover { background: #2980b9; }
+
+    .btn-success { background: #2ecc71; color: #fff; border-color: #27ae60; box-shadow: 0 3px 0 #1e8449; }
+    .btn-success:hover { background: #27ae60; }
+
+    .btn-danger { background: #e74c3c; color: #fff; border-color: #c0392b; box-shadow: 0 3px 0 #922b21; }
+    .btn-danger:hover { background: #c0392b; }
+
+    .btn-secondary { background: #95a5a6; color: #fff; border-color: #7f8c8d; box-shadow: 0 3px 0 #616a6b; }
+    .btn-secondary:hover { background: #7f8c8d; }
+
+    /* Sala & Pódio */
+    .room-code-badge {
+      background: #f1c40f;
+      color: #2c3e50;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      border: 2px dashed #d68910;
+      display: inline-block;
+      margin: 4px 0;
+      cursor: pointer;
+    }
+
+    .players-list {
+      background: #fdfefe;
+      border: 1px solid #d5dbdb;
+      border-radius: 4px;
+      padding: 8px;
+      max-height: 110px;
+      overflow-y: auto;
+      margin: 8px 0;
+    }
+
+    .player-tag {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      padding: 4px 6px;
+      border-bottom: 1px solid #ecf0f1;
+    }
+
+    .player-tag:last-child { border-bottom: none; }
+    .player-color-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+
+    /* Pódio de Resultados */
+    .podium-list {
+      background: #f8f9fa;
+      border: 2px solid #bdc3c7;
+      border-radius: 6px;
+      padding: 10px;
+      margin: 12px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .podium-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: bold;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+    }
+
+    .podium-item.first {
+      background: #fff9db;
+      border-color: #f1c40f;
+      color: #b7791f;
+      font-size: 14px;
+    }
+
+    .podium-item.second {
+      background: #f1f2f6;
+      border-color: #bdc3c7;
+      color: #57606f;
+    }
+
+    .podium-item.third {
+      background: #fff0eb;
+      border-color: #e17055;
+      color: #d35400;
+    }
+
+    .hud-bar {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+      font-size: 12px;
+      font-weight: bold;
+      color: #34495e;
+    }
+
+    .ping-badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      background: #e8f8f5;
+      color: #16a085;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🦖 DINO MULTIPLAYER ROYALE</h1>
+  <p class="instructions">
+    <b>← / →</b> Mover &nbsp;|&nbsp; 
+    <b>↑ / Espaço</b> Pular (Duplo) &nbsp;|&nbsp; 
+    <b>↓</b> Agachar / Queda Rápida &nbsp;|&nbsp; 
+    Último sobrevivente vence!
+  </p>
+
+  <div class="game-wrapper">
+    <canvas id="gameCanvas" width="800" height="260"></canvas>
+
+    <div class="hud-bar">
+      <div id="statusRoomInfo">Modo: Solo Offline</div>
+      <div id="pingIndicator" class="ping-badge">P2P: Pronto</div>
+    </div>
+
+    <!-- 1: MENU PRINCIPAL -->
+    <div id="screenMainMenu" class="overlay-screen">
+      <div class="card">
+        <h2>🎮 ESCOLHA O MODO DE JOGO</h2>
+        
+        <div class="input-group">
+          <label for="inputPlayerName">SEU APELIDO:</label>
+          <input type="text" id="inputPlayerName" maxlength="10" value="DINO_1">
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="showCreateRoomScreen()">👑 Criar Sala Online</button>
+          <button class="btn btn-success" onclick="showJoinRoomScreen()">🔗 Entrar com Código</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="startSoloGame()">🕹️ Jogar Modo Solo (Offline)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2: CRIAR SALA & MODIFICADORES -->
+    <div id="screenCreateRoom" class="overlay-screen hidden">
+      <div class="card">
+        <h2>⚙️ CONFIGURAR SALA & REGRAS</h2>
+        
+        <div class="modifiers-grid">
+          <label class="modifier-item">
+            <input type="checkbox" id="modMeteors" checked> ☄️ Chuva de Meteoros
+          </label>
+          <label class="modifier-item">
+            <input type="checkbox" id="modNyan" checked> 🌈 Nyan Cats Guiados
+          </label>
+          <label class="modifier-item">
+            <input type="checkbox" id="modFrogs" checked> 🐸 Sapos Saltadores
+          </label>
+          <label class="modifier-item">
+            <input type="checkbox" id="modFlyers" checked> 🦅 Pterodáctilos
+          </label>
+          <label class="modifier-item">
+            <input type="checkbox" id="modCactus" checked> 🌵 Cactos Clássicos
+          </label>
+          <label class="modifier-item">
+            <input type="checkbox" id="modWaterBiome" checked> 🌊 Bioma de Água
+          </label>
+          <label class="modifier-item">
+            <input type="checkbox" id="modBoss" checked> 👾 Batalha de Boss
+          </label>
+          <label class="modifier-item">
+            <input type="checkbox" id="modDoubleJump" checked> 🦘 Pulo Duplo
+          </label>
+        </div>
+
+        <div style="display:flex; gap: 10px;">
+          <div class="input-group" style="flex:1;">
+            <label>VIDAS INICIAIS:</label>
+            <select id="modLives">
+              <option value="1">1 Vida (Morte Súbita)</option>
+              <option value="3" selected>3 Vidas (Padrão)</option>
+              <option value="5">5 Vidas (Casual)</option>
+            </select>
+          </div>
+          <div class="input-group" style="flex:1;">
+            <label>VELOCIDADE INICIAL:</label>
+            <select id="modSpeed">
+              <option value="4.5">Lento (4.5)</option>
+              <option value="5.5" selected>Normal (5.5)</option>
+              <option value="7.0">Turbo (7.0)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="showMainMenu()">Voltar</button>
+          <button class="btn btn-primary" onclick="initHostRoom()">Criar Sala e Gerar Código</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3: ENTRAR EM SALA -->
+    <div id="screenJoinRoom" class="overlay-screen hidden">
+      <div class="card">
+        <h2>🔗 ENTRAR EM UMA SALA</h2>
+        
+        <div class="input-group">
+          <label for="inputRoomCode">DIGITE O CÓDIGO DA SALA (4 LETRAS):</label>
+          <input type="text" id="inputRoomCode" placeholder="EX: ABCD" maxlength="4">
+        </div>
+
+        <div id="joinStatusMessage" style="font-size:12px; color:#e74c3c; margin-bottom:8px;"></div>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="showMainMenu()">Voltar</button>
+          <button class="btn btn-success" id="btnConnectRoom" onclick="joinRoomByCode()">Conectar na Sala</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4: LOBBY DE ESPERA -->
+    <div id="screenLobby" class="overlay-screen hidden">
+      <div class="card">
+        <h2>🎪 LOBBY DA SALA</h2>
+        
+        <p style="font-size:12px; text-align:center;">Compartilhe este código com seus amigos:</p>
+        <div style="text-align:center;">
+          <span class="room-code-badge" id="lobbyRoomCode" title="Clique para copiar">----</span>
+        </div>
+
+        <p style="font-size:12px; font-weight:bold; margin-top:8px;">Jogadores na Sala (<span id="playerCount">1</span>):</p>
+        <div class="players-list" id="lobbyPlayersList">
+          <!-- Lista dinâmica -->
+        </div>
+
+        <div id="lobbyFeaturesSummary" style="font-size:11px; background:#f1f2f6; padding:6px; border-radius:4px; margin: 6px 0; color:#57606f;">
+          Regras: Carregando...
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-danger" onclick="leaveRoom()">Sair da Sala</button>
+          <button class="btn btn-success hidden" id="btnHostStart" onclick="hostStartMatch()">🚀 Começar Partida!</button>
+        </div>
+        <p id="clientWaitNotice" class="hidden" style="font-size:12px; text-align:center; margin-top:6px; color:#e67e22; font-weight:bold;">
+          Aguardando o Dono da Sala iniciar...
+        </p>
+      </div>
+    </div>
+
+    <!-- 5: TELA DE RESULTADOS FINAIS (QUANDO TODOS MORREM) -->
+    <div id="screenMatchResults" class="overlay-screen hidden">
+      <div class="card">
+        <h2>🏁 FIM DE PARTIDA - RESULTADOS</h2>
+        <p style="text-align:center; font-size:13px; font-weight:bold; color:#2c3e50; margin-bottom:6px;">
+          Todos os Dinos foram eliminados!
+        </p>
+
+        <div class="podium-list" id="podiumListContainer">
+          <!-- Resultados dinâmicos ordenados por distância -->
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="leaveRoom()">Voltar ao Menu</button>
+          <button class="btn btn-primary hidden" id="btnRestartMatch" onclick="restartMatchAction()">🔄 Jogar Novamente</button>
+        </div>
+        <p id="clientWaitRestartNotice" class="hidden" style="font-size:11px; text-align:center; margin-top:6px; color:#7f8c8d;">
+          Aguardando o Dono reiniciar a partida...
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    // --- Cores dos Dinos ---
+    const PLAYER_COLORS = [
+      { name: 'Clássico', hex: '#535353' },
+      { name: 'Azul', hex: '#2980b9' },
+      { name: 'Vermelho', hex: '#c0392b' },
+      { name: 'Verde', hex: '#27ae60' },
+      { name: 'Roxo', hex: '#8e44ad' },
+      { name: 'Laranja', hex: '#d35400' }
+    ];
+
+    // --- Sprites ---
+    const assets = {
+      run1: new Image(), run2: new Image(), jump: new Image(),
+      duck1: new Image(), duck2: new Image(), scared: new Image(),
+      dead: new Image(), heart: new Image(), ground: new Image(),
+      water: new Image(), cactus: new Image(), fly1: new Image(),
+      fly2: new Image(), nyan: new Image(), frog: new Image(),
+      boss: new Image(), greenBall: new Image(), blueBall: new Image(),
+      meteor: new Image(), cloud: new Image(), mountain: new Image()
+    };
+
+    assets.run1.src = 'dinorun1.png';
+    assets.run2.src = 'dinorun2.png';
+    assets.jump.src = 'dinojump.png';
+    assets.duck1.src = 'dinoagacha1.png';
+    assets.duck2.src = 'dinoagacha2.png';
+    assets.scared.src = 'dinoassustado.png';
+    assets.dead.src = 'dinomorto.png';
+    assets.heart.src = 'coração.png';
+    assets.ground.src = 'chao.png';
+    assets.water.src = 'agua.png';
+    assets.cactus.src = 'cacto.png';
+    assets.fly1.src = 'dinfly1.png';
+    assets.fly2.src = 'dinfly2.png';
+    assets.nyan.src = 'nyancat.gif';
+    assets.frog.src = 'sapo.png';
+    assets.boss.src = 'boss.png';
+    assets.greenBall.src = 'bolaverde.png';
+    assets.blueBall.src = 'bola azul.png';
+    assets.meteor.src = 'meteoro.png';
+    assets.cloud.src = 'nuvem.png';
+    assets.mountain.src = 'montanha.png';
+
+    // --- Física e Jogo ---
+    const groundY = 216;
+    let gameSpeed = 5.5;
+    let score = 0;
+    let highScore = 0;
+    let isGameOver = false;
+    let isGameRunning = false;
+    let animFrameCounter = 0;
+    let groundScrollX = 0;
+    let waterScrollX = 0;
+    let allDeadCheckCooldown = 0;
+    let matchResultsShown = false;
+
+    // --- Modificadores de Partida ---
+    let roomSettings = {
+      enableMeteors: true,
+      enableNyan: true,
+      enableFrogs: true,
+      enableFlyers: true,
+      enableCactus: true,
+      enableWaterBiome: true,
+      enableBoss: true,
+      enableDoubleJump: true,
+      initialLives: 3,
+      initialSpeed: 5.5
+    };
+
+    // --- Multiplayer Networking ---
+    let netMode = 'solo'; // 'solo' | 'host' | 'client'
+    let peer = null;
+    let myPeerId = '';
+    let roomCode = '';
+    let myNickname = 'DINO_1';
+    let myPlayerIndex = 0;
+    let hostConnection = null;
+    const clientConnections = [];
+    const remotePlayers = new Map();
+
+    const keys = { left: false, right: false, down: false };
+
+    // --- SISTEMA DE TRANSIÇÃO SUAVE DE BIOMAS ---
+    const biomeSystem = {
+      current: 'desert',
+      targetBiome: 'desert',
+      transitioning: false,
+      seamX: 0,
+      nextChangeDist: 350,
+      skyFactor: 0,
+      bannerText: '',
+      bannerTimer: 0,
+
+      startTransition(toBiome) {
+        if (!roomSettings.enableWaterBiome) return;
+        this.transitioning = true;
+        this.targetBiome = toBiome;
+        this.seamX = canvas.width + 60;
+
+        if (toBiome === 'water') {
+          this.bannerText = '🌊 ENTRANDO NO LAGO AQUÁTICO...';
+          this.bannerTimer = 180;
+          spawnPlatform(this.seamX + 70, groundY - 35, 120);
+        } else {
+          this.bannerText = '🏜️ RETORNANDO AO DESERTO...';
+          this.bannerTimer = 180;
+        }
+
+        if (netMode === 'host') {
+          broadcastToClients({ type: 'BIOME_TRANSITION', toBiome: toBiome });
+        }
+      },
+
+      update() {
+        if (!roomSettings.enableWaterBiome) {
+          this.current = 'desert';
+          this.transitioning = false;
+          this.skyFactor = 0;
+          canvas.style.backgroundColor = '#ffffff';
+          return;
+        }
+
+        if (this.bannerTimer > 0) this.bannerTimer--;
+
+        if (netMode !== 'client' && score >= this.nextChangeDist && !this.transitioning && !boss.active) {
+          const next = this.current === 'desert' ? 'water' : 'desert';
+          this.startTransition(next);
+        }
+
+        if (this.transitioning) {
+          this.seamX -= gameSpeed;
+          if (this.targetBiome === 'water') {
+            this.skyFactor = Math.min(1, this.skyFactor + 0.008);
+          } else {
+            this.skyFactor = Math.max(0, this.skyFactor - 0.008);
+          }
+
+          if (this.seamX < -100) {
+            this.transitioning = false;
+            this.current = this.targetBiome;
+            this.nextChangeDist = score + Math.floor(Math.random() * 160) + 340;
+          }
+        } else {
+          this.skyFactor = this.current === 'water' ? 1 : 0;
+        }
+
+        const r = Math.round(255 - (255 - 240) * this.skyFactor);
+        const g = Math.round(255 - (255 - 249) * this.skyFactor);
+        const b = Math.round(255 - (255 - 255) * this.skyFactor);
+        canvas.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+      },
+
+      isSolidGroundAt(x) {
+        if (!roomSettings.enableWaterBiome) return true;
+        if (!this.transitioning) return this.current === 'desert';
+        if (this.current === 'desert' && this.targetBiome === 'water') {
+          return x < this.seamX;
+        } else if (this.current === 'water' && this.targetBiome === 'desert') {
+          return x >= this.seamX;
+        }
+        return true;
+      },
+
+      drawBanner() {
+        if (this.bannerTimer > 0 && roomSettings.enableWaterBiome) {
+          ctx.fillStyle = this.targetBiome === 'water' ? '#2980b9' : '#d35400';
+          ctx.font = 'bold 12px "Courier New", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(this.bannerText, canvas.width / 2, 70);
+        }
+      }
+    };
+
+    // --- Plataformas Aquáticas ---
+    const platforms = [];
+    let platformTimer = 0;
+
+    function spawnPlatform(customX = canvas.width, customY = null, customW = null) {
+      const heights = [groundY - 24, groundY - 42, groundY - 60];
+      const pY = customY !== null ? customY : heights[Math.floor(Math.random() * heights.length)];
+      const pW = customW !== null ? customW : Math.floor(Math.random() * 45) + 85;
+
+      platforms.push({ x: customX, y: pY, width: pW, height: 12 });
+    }
+
+    function updateAndDrawPlatforms() {
+      if (!roomSettings.enableWaterBiome) return;
+
+      const isWaterPresent = biomeSystem.current === 'water' || 
+                            (biomeSystem.transitioning && (biomeSystem.targetBiome === 'water' || biomeSystem.current === 'water'));
+
+      if (isWaterPresent && !boss.active && netMode !== 'client') {
+        platformTimer++;
+        if (platformTimer > 45 && Math.random() < 0.08) {
+          if (!biomeSystem.transitioning || biomeSystem.targetBiome === 'water' || (biomeSystem.targetBiome === 'desert' && canvas.width < biomeSystem.seamX)) {
+            spawnPlatform();
+            platformTimer = 0;
+          }
+        }
+      }
+
+      for (let i = platforms.length - 1; i >= 0; i--) {
+        const p = platforms[i];
+        p.x -= gameSpeed;
+
+        const rx = Math.round(p.x);
+        const ry = Math.round(p.y);
+
+        ctx.fillStyle = '#8b5a2b';
+        ctx.fillRect(rx, ry, p.width, p.height);
+        ctx.fillStyle = '#a67c52';
+        ctx.fillRect(rx, ry, p.width, 3);
+        ctx.fillStyle = '#4a2f13';
+        ctx.fillRect(rx + 6, ry + 5, 3, 3);
+        ctx.fillRect(rx + p.width - 9, ry + 5, 3, 3);
+
+        if (p.x + p.width < -30) {
+          platforms.splice(i, 1);
+        }
+      }
+    }
+
+    // --- Nuvens & Montanhas ---
+    const clouds = [
+      { x: 100, y: 35, width: 64, height: 24, speedFactor: 0.12 },
+      { x: 380, y: 65, width: 75, height: 28, speedFactor: 0.16 },
+      { x: 680, y: 25, width: 58, height: 22, speedFactor: 0.10 }
+    ];
+
+    function updateAndDrawClouds() {
+      for (let i = 0; i < clouds.length; i++) {
+        const c = clouds[i];
+        c.x -= gameSpeed * c.speedFactor;
+        if (c.x + c.width < 0) {
+          c.x = canvas.width + Math.random() * 80;
+          c.y = Math.random() * 55 + 20;
+        }
+        const rx = Math.round(c.x);
+        const ry = Math.round(c.y);
+        if (assets.cloud.complete && assets.cloud.naturalWidth !== 0) {
+          ctx.drawImage(assets.cloud, rx, ry, c.width, c.height);
+        } else {
+          ctx.fillStyle = '#e0e0e0';
+          ctx.fillRect(rx, ry, c.width, c.height);
+        }
+      }
+    }
+
+    let mountainX = 0;
+    const mountainWidth = 320;
+    const mountainHeight = 65;
+
+    function updateAndDrawMountains() {
+      mountainX -= gameSpeed * 0.28;
+      if (mountainX <= -mountainWidth) mountainX = 0;
+      const y = groundY - mountainHeight + 1;
+
+      for (let x = mountainX; x < canvas.width + mountainWidth; x += mountainWidth) {
+        const rx = Math.round(x);
+        const ry = Math.round(y);
+        if (assets.mountain.complete && assets.mountain.naturalWidth !== 0) {
+          ctx.drawImage(assets.mountain, rx, ry, mountainWidth, mountainHeight);
+        } else {
+          ctx.fillStyle = '#cccccc';
+          ctx.beginPath();
+          ctx.moveTo(rx, groundY);
+          ctx.lineTo(rx + mountainWidth / 2, groundY - mountainHeight);
+          ctx.lineTo(rx + mountainWidth, groundY);
+          ctx.fill();
+        }
+      }
+    }
+
+    // --- Chão e Água ---
+    function updateAndDrawGround() {
+      groundScrollX -= gameSpeed;
+      waterScrollX -= gameSpeed * 1.1;
+
+      const gWidth = assets.ground.naturalWidth || 800;
+      const gHeight = assets.ground.naturalHeight || 24;
+      const wWidth = assets.water.naturalWidth || 800;
+      const wHeight = assets.water.naturalHeight || 34;
+
+      if (groundScrollX <= -gWidth) groundScrollX += gWidth;
+      if (waterScrollX <= -wWidth) waterScrollX += wWidth;
+
+      if (!roomSettings.enableWaterBiome || !biomeSystem.transitioning || boss.active) {
+        if (biomeSystem.current === 'desert' || !roomSettings.enableWaterBiome || boss.active) {
+          drawGroundStrip(0, canvas.width, groundScrollX, gWidth, gHeight);
+        } else {
+          drawWaterStrip(0, canvas.width, waterScrollX, wWidth, wHeight);
+        }
+        return;
+      }
+
+      const seam = Math.round(biomeSystem.seamX);
+      if (biomeSystem.current === 'desert' && biomeSystem.targetBiome === 'water') {
+        if (seam > 0) drawGroundStrip(0, seam, groundScrollX, gWidth, gHeight);
+        if (seam < canvas.width) drawWaterStrip(seam, canvas.width, waterScrollX, wWidth, wHeight);
+        drawShoreEdge(seam);
+      } else {
+        if (seam > 0) drawWaterStrip(0, seam, waterScrollX, wWidth, wHeight);
+        if (seam < canvas.width) drawGroundStrip(seam, canvas.width, groundScrollX, gWidth, gHeight);
+        drawShoreEdge(seam);
+      }
+    }
+
+    function drawGroundStrip(minX, maxX, scrollX, gW, gH) {
+      if (minX >= maxX) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(minX, 0, maxX - minX, canvas.height);
+      ctx.clip();
+      for (let x = scrollX; x < canvas.width + gW; x += gW) {
+        const rx = Math.round(x);
+        if (assets.ground.complete && assets.ground.naturalWidth !== 0) {
+          ctx.drawImage(assets.ground, rx, groundY, gW, gH);
+        } else {
+          ctx.strokeStyle = '#535353';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, groundY);
+          ctx.lineTo(canvas.width, groundY);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawWaterStrip(minX, maxX, scrollX, wW, wH) {
+      if (minX >= maxX) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(minX, 0, maxX - minX, canvas.height);
+      ctx.clip();
+      for (let x = scrollX; x < canvas.width + wW; x += wW) {
+        const rx = Math.round(x);
+        if (assets.water.complete && assets.water.naturalWidth !== 0) {
+          ctx.drawImage(assets.water, rx, groundY - 2, wW, wH);
+        } else {
+          ctx.fillStyle = '#3498db';
+          ctx.fillRect(rx, groundY, wW, canvas.height - groundY);
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawShoreEdge(x) {
+      if (x < -20 || x > canvas.width + 20) return;
+      ctx.fillStyle = '#5c3a21';
+      ctx.fillRect(x - 3, groundY - 2, 6, 26);
+      ctx.fillStyle = '#8b5a2b';
+      ctx.fillRect(x - 5, groundY - 4, 10, 5);
+      ctx.fillStyle = '#a67c52';
+      ctx.fillRect(x - 5, groundY - 4, 10, 2);
+    }
+
+    // --- Dino Local (com física de morte realista) ---
+    const dino = {
+      x: 80,
+      y: groundY - 48,
+      normalWidth: 44,
+      normalHeight: 48,
+      duckWidth: 56,
+      duckHeight: 28,
+      width: 44,
+      height: 48,
+      vx: 0,
+      vy: 0,
+      speed: 4.5,
+      gravity: 0.55,
+      jumpForce: -11,
+      jumpsRemaining: 2,
+      isGrounded: true,
+      isDucking: false,
+      lives: 3,
+      invulnerableTimer: 0,
+      scaredTimer: 0,
+      deadRotation: 0,
+      deadRotSpeed: 0,
+
+      jump() {
+        if (isGameOver) return;
+        const maxJumps = roomSettings.enableDoubleJump ? 2 : 1;
+        if (this.jumpsRemaining > 0) {
+          this.vy = this.jumpForce;
+          this.isGrounded = false;
+          this.jumpsRemaining--;
+        }
+      },
+
+      takeDamage() {
+        if (this.invulnerableTimer > 0 || isGameOver) return;
+        this.lives--;
+
+        if (this.lives <= 0) {
+          this.lives = 0;
+          isGameOver = true;
+          // Impulso de física para a morte
+          this.vy = -6.5;
+          this.vx = -2.0;
+          this.deadRotSpeed = -0.09;
+          this.isGrounded = false;
+          gameOver();
+        } else {
+          this.invulnerableTimer = 90;
+          this.scaredTimer = 40;
+        }
+
+        if (netMode !== 'solo') {
+          syncLocalPlayerToNetwork();
+        }
+      },
+
+      update() {
+        // FÍSICA QUANDO MORTO (Cai com gravidade e rola até o chão)
+        if (isGameOver) {
+          this.vy += this.gravity * 0.9;
+          this.y += this.vy;
+          this.x += this.vx;
+          this.deadRotation += this.deadRotSpeed;
+
+          // Chão ao morrer
+          if (this.y >= groundY - this.normalHeight + 8) {
+            this.y = groundY - this.normalHeight + 8;
+            this.vy = 0;
+            this.vx = 0;
+            this.deadRotSpeed = 0;
+            this.deadRotation = -Math.PI / 2; // Fica deitado no chão
+          }
+          return;
+        }
+
+        if (this.invulnerableTimer > 0) this.invulnerableTimer--;
+        if (this.scaredTimer > 0) this.scaredTimer--;
+
+        if (keys.left) this.x -= this.speed;
+        if (keys.right) this.x += this.speed;
+
+        if (this.x < 10) this.x = 10;
+        if (this.x + this.width > canvas.width - 20) {
+          this.x = canvas.width - 20 - this.width;
+        }
+
+        if (keys.down) {
+          if (this.isGrounded) {
+            this.isDucking = true;
+            this.width = this.duckWidth;
+            this.height = this.duckHeight;
+          } else {
+            this.vy += 1.2;
+          }
+        } else {
+          if (this.isDucking) {
+            this.isDucking = false;
+            this.width = this.normalWidth;
+            this.height = this.normalHeight;
+          }
+        }
+
+        this.vy += this.gravity;
+        this.y += this.vy;
+        let landed = false;
+
+        const dinoCenterX = this.x + this.width / 2;
+        const isSolidGround = biomeSystem.isSolidGroundAt(dinoCenterX) || boss.active;
+
+        if (isSolidGround) {
+          if (this.y >= groundY - this.height + 2) {
+            this.y = groundY - this.height + 2;
+            this.vy = 0;
+            landed = true;
+          }
+        } else {
+          for (let p of platforms) {
+            const dinoFeet = this.y + this.height;
+            const prevFeet = dinoFeet - this.vy;
+            if (
+              this.vy >= 0 &&
+              prevFeet <= p.y + 8 &&
+              dinoFeet >= p.y &&
+              this.x + this.width - 8 > p.x &&
+              this.x + 8 < p.x + p.width
+            ) {
+              this.y = p.y - this.height;
+              this.vy = 0;
+              landed = true;
+              break;
+            }
+          }
+
+          if (this.y >= groundY - 8) {
+            this.takeDamage();
+            this.vy = -9.5;
+            this.jumpsRemaining = 1;
+          }
+        }
+
+        if (landed) {
+          this.isGrounded = true;
+          this.jumpsRemaining = roomSettings.enableDoubleJump ? 2 : 1;
+        } else {
+          this.isGrounded = false;
+        }
+      },
+
+      draw() {
+        if (!isGameOver && this.invulnerableTimer > 0 && Math.floor(animFrameCounter / 4) % 2 === 0) {
+          return;
+        }
+
+        let currentSprite;
+        const stepToggle = Math.floor(animFrameCounter / 7) % 2;
+
+        if (isGameOver) {
+          currentSprite = assets.dead;
+        } else if (this.scaredTimer > 0) {
+          currentSprite = assets.scared;
+        } else if (!this.isGrounded) {
+          currentSprite = assets.jump;
+        } else if (this.isDucking) {
+          currentSprite = stepToggle === 0 ? assets.duck1 : assets.duck2;
+        } else {
+          currentSprite = stepToggle === 0 ? assets.run1 : assets.run2;
+        }
+
+        const rx = Math.round(this.x);
+        const ry = Math.round(this.y);
+
+        ctx.save();
+        if (isGameOver) {
+          ctx.translate(rx + this.width / 2, ry + this.height / 2);
+          ctx.rotate(this.deadRotation);
+          ctx.translate(-(rx + this.width / 2), -(ry + this.height / 2));
+        }
+
+        // Tag com nome acima do dino
+        ctx.fillStyle = '#2c3e50';
+        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`★ VOCÊ (${myNickname})`, rx + this.width / 2, ry - 6);
+
+        if (currentSprite.complete && currentSprite.naturalWidth !== 0) {
+          ctx.drawImage(currentSprite, rx, ry, this.width, this.height);
+        } else {
+          ctx.fillStyle = isGameOver ? '#d63031' : PLAYER_COLORS[myPlayerIndex % PLAYER_COLORS.length].hex;
+          ctx.fillRect(rx, ry, this.width, this.height);
+        }
+        ctx.restore();
+      }
+    };
+
+    // --- Outros Jogadores Conectados ---
+    function drawRemotePlayers() {
+      remotePlayers.forEach((player) => {
+        if (player.id === myPeerId) return;
+
+        const rx = Math.round(player.x || 80);
+        const ry = Math.round(player.y || groundY - 48);
+        const pWidth = player.width || 44;
+        const pHeight = player.height || 48;
+        const pColor = PLAYER_COLORS[(player.colorIndex || 1) % PLAYER_COLORS.length];
+
+        ctx.save();
+        if (player.isDead) {
+          ctx.globalAlpha = 0.55;
+          ctx.translate(rx + pWidth / 2, ry + pHeight / 2);
+          ctx.rotate(player.deadRotation || -Math.PI / 2);
+          ctx.translate(-(rx + pWidth / 2), -(ry + pHeight / 2));
+        } else {
+          ctx.globalAlpha = 0.88;
+        }
+
+        ctx.fillStyle = pColor.hex;
+        ctx.font = 'bold 9px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        const heartsIcon = player.isDead ? '💀 MORTO' : '❤️'.repeat(Math.max(0, player.lives || 1));
+        ctx.fillText(`${player.name} [${heartsIcon}]`, rx + pWidth / 2, ry - 6);
+
+        let spriteToDraw = assets.run1;
+        if (player.isDead) spriteToDraw = assets.dead;
+        else if (!player.isGrounded) spriteToDraw = assets.jump;
+        else if (player.isDucking) spriteToDraw = assets.duck1;
+
+        if (spriteToDraw.complete && spriteToDraw.naturalWidth !== 0) {
+          ctx.drawImage(spriteToDraw, rx, ry, pWidth, pHeight);
+        } else {
+          ctx.fillStyle = pColor.hex;
+          ctx.fillRect(rx, ry, pWidth, pHeight);
+        }
+        ctx.restore();
+      });
+    }
+
+    // --- Inimigos ---
+    const obstacles = [];
+    let obstacleTimer = 0;
+    let minObstacleDistance = 80;
+
+    const cactusVariations = [
+      { width: 18, height: 32 },
+      { width: 25, height: 46 },
+      { width: 32, height: 56 },
+      { width: 46, height: 44 }
+    ];
+
+    function spawnObstacle() {
+      if (boss.active) return;
+
+      const availableTypes = [];
+      if (roomSettings.enableCactus) availableTypes.push('cactus');
+      if (roomSettings.enableFlyers) availableTypes.push('flyer');
+      if (roomSettings.enableFrogs && score > 60) availableTypes.push('frog');
+      if (roomSettings.enableNyan && score > 120) availableTypes.push('nyan');
+
+      if (availableTypes.length === 0) return;
+
+      const spawnX = canvas.width + 10;
+      const isSpawnOverWater = !biomeSystem.isSolidGroundAt(spawnX);
+
+      if (isSpawnOverWater) {
+        if (roomSettings.enableFlyers && Math.random() < 0.6) {
+          const heights = [groundY - 60, groundY - 85, groundY - 110];
+          obstacles.push({
+            type: 'flyer',
+            x: spawnX,
+            y: heights[Math.floor(Math.random() * heights.length)],
+            width: 42, height: 32, speedOffset: 0.8
+          });
+        } else if (roomSettings.enableNyan && score > 120) {
+          obstacles.push({
+            type: 'nyan',
+            x: spawnX,
+            y: Math.random() * (groundY - 110) + 30,
+            width: 74, height: 28, speed: gameSpeed + 1.2,
+            isTracking: true, lockDistance: dino.x + 220
+          });
+        }
+        return;
+      }
+
+      const chosenType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
+
+      if (chosenType === 'nyan') {
+        obstacles.push({
+          type: 'nyan',
+          x: spawnX,
+          y: Math.random() * (groundY - 110) + 30,
+          width: 74, height: 28, speed: gameSpeed + 1.2,
+          isTracking: true, lockDistance: dino.x + 220
+        });
+      } else if (chosenType === 'frog') {
+        const frogHeight = 58;
+        obstacles.push({
+          type: 'frog',
+          x: spawnX,
+          y: groundY - frogHeight + 2,
+          width: 36, height: frogHeight,
+          speedOffset: 5.0,
+          wobbleOffset: Math.random() * Math.PI * 2
+        });
+      } else if (chosenType === 'flyer') {
+        const heights = [groundY - 35, groundY - 60, groundY - 85];
+        obstacles.push({
+          type: 'flyer',
+          x: spawnX,
+          y: heights[Math.floor(Math.random() * heights.length)],
+          width: 42, height: 32, speedOffset: 0.8
+        });
+      } else {
+        const cVar = cactusVariations[Math.floor(Math.random() * cactusVariations.length)];
+        obstacles.push({
+          type: 'cactus',
+          x: spawnX,
+          y: groundY - cVar.height + 2,
+          width: cVar.width, height: cVar.height, speedOffset: 0
+        });
+      }
+    }
+
+    function updateObstacles() {
+      if (netMode !== 'client') {
+        obstacleTimer++;
+        if (obstacleTimer > minObstacleDistance && Math.random() < 0.045) {
+          spawnObstacle();
+          obstacleTimer = 0;
+          minObstacleDistance = Math.floor(Math.random() * 45) + 65;
+        }
+      }
+
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const obs = obstacles[i];
+
+        if (obs.type === 'nyan') {
+          if (obs.isTracking) {
+            const targetY = dino.y + (dino.height / 2) - (obs.height / 2);
+            const dy = targetY - obs.y;
+            obs.y += Math.sign(dy) * Math.min(Math.abs(dy), 2.2);
+            if (obs.x <= obs.lockDistance) {
+              obs.isTracking = false;
+              obs.speed = gameSpeed + 3.0;
+            }
+          }
+          obs.x -= obs.speed;
+        } else {
+          obs.x -= (gameSpeed + obs.speedOffset);
+        }
+
+        const renderObsX = Math.round(obs.x);
+        const renderObsY = Math.round(obs.y);
+
+        if (obs.type === 'cactus') {
+          if (assets.cactus.complete && assets.cactus.naturalWidth !== 0) {
+            ctx.drawImage(assets.cactus, renderObsX, renderObsY, obs.width, obs.height);
+          } else {
+            ctx.fillStyle = '#3a8a3a';
+            ctx.fillRect(renderObsX, renderObsY, obs.width, obs.height);
+          }
+        } else if (obs.type === 'flyer') {
+          const wingToggle = Math.floor(animFrameCounter / 8) % 2;
+          const flySprite = wingToggle === 0 ? assets.fly1 : assets.fly2;
+          if (flySprite.complete && flySprite.naturalWidth !== 0) {
+            ctx.drawImage(flySprite, renderObsX, renderObsY, obs.width, obs.height);
+          } else {
+            ctx.fillStyle = '#b33939';
+            ctx.fillRect(renderObsX, renderObsY, obs.width, obs.height);
+          }
+        } else if (obs.type === 'frog') {
+          const fastWobble = Math.sin(animFrameCounter * 0.28 + obs.wobbleOffset) * 0.16;
+          ctx.save();
+          ctx.translate(renderObsX + obs.width / 2, groundY + 2);
+          ctx.rotate(-0.08 + fastWobble);
+          if (assets.frog.complete && assets.frog.naturalWidth !== 0) {
+            ctx.drawImage(assets.frog, -obs.width / 2, -obs.height, obs.width, obs.height);
+          } else {
+            ctx.fillStyle = '#2ecc71';
+            ctx.fillRect(-obs.width / 2, -obs.height, obs.width, obs.height);
+          }
+          ctx.restore();
+        } else if (obs.type === 'nyan') {
+          ctx.save();
+          ctx.translate(renderObsX + obs.width, renderObsY);
+          ctx.scale(-1, 1);
+          if (assets.nyan.complete && assets.nyan.naturalWidth !== 0) {
+            ctx.drawImage(assets.nyan, 0, 0, obs.width, obs.height);
+          } else {
+            ctx.fillStyle = '#ff69b4';
+            ctx.fillRect(0, 0, obs.width, obs.height);
+          }
+          ctx.restore();
+        }
+
+        const marginX = 6;
+        const marginY = 4;
+        if (
+          !isGameOver &&
+          dino.x + marginX < obs.x + obs.width &&
+          dino.x + dino.width - marginX > obs.x &&
+          dino.y + marginY < obs.y + obs.height &&
+          dino.y + dino.height - marginY > obs.y
+        ) {
+          dino.takeDamage();
+        }
+
+        if (obs.x + obs.width < -40) {
+          obstacles.splice(i, 1);
+        }
+      }
+    }
+
+    // --- Meteoros ---
+    const meteors = [];
+    const meteorEvent = {
+      state: 'idle',
+      nextShowerDist: 220,
+      warningDist: 25,
+      showerLength: 65,
+      spawnCooldown: 0
+    };
+
+    function spawnMeteor() {
+      const typeRoll = Math.random();
+      let size, vx, vy, rotSpeed;
+      if (typeRoll < 0.35) {
+        size = Math.floor(Math.random() * 6) + 20;
+        vx = -(Math.random() * 3 + 5);
+        vy = Math.random() * 3 + 5.5;
+        rotSpeed = (Math.random() * 0.1 + 0.08);
+      } else if (typeRoll < 0.78) {
+        size = Math.floor(Math.random() * 10) + 32;
+        vx = -(Math.random() * 2 + 3.5);
+        vy = Math.random() * 2.5 + 4;
+        rotSpeed = (Math.random() * 0.06 + 0.04);
+      } else {
+        size = Math.floor(Math.random() * 12) + 52;
+        vx = -(Math.random() * 1.5 + 2.5);
+        vy = Math.random() * 2 + 3;
+        rotSpeed = (Math.random() * 0.03 + 0.02);
+      }
+
+      meteors.push({
+        x: Math.random() * (canvas.width + 160) - 40,
+        y: -size - 10,
+        width: size, height: size,
+        vx: vx, vy: vy, angle: 0,
+        rotSpeed: Math.random() < 0.5 ? rotSpeed : -rotSpeed
+      });
+    }
+
+    function updateMeteors() {
+      if (!roomSettings.enableMeteors || boss.active) return;
+
+      if (netMode !== 'client') {
+        const currentDist = score;
+        if (meteorEvent.state === 'idle') {
+          if (currentDist >= meteorEvent.nextShowerDist - meteorEvent.warningDist) {
+            meteorEvent.state = 'warning';
+          }
+        } else if (meteorEvent.state === 'warning') {
+          if (currentDist >= meteorEvent.nextShowerDist) {
+            meteorEvent.state = 'active';
+            meteorEvent.showerLength = Math.floor(Math.random() * 30) + 55;
+          }
+        } else if (meteorEvent.state === 'active') {
+          meteorEvent.spawnCooldown++;
+          if (meteorEvent.spawnCooldown > 22) {
+            spawnMeteor();
+            meteorEvent.spawnCooldown = 0;
+          }
+          if (currentDist >= meteorEvent.nextShowerDist + meteorEvent.showerLength) {
+            meteorEvent.state = 'idle';
+            meteorEvent.nextShowerDist = currentDist + Math.floor(Math.random() * 300 + 200);
+          }
+        }
+      }
+
+      if (meteorEvent.state === 'warning') {
+        if (Math.floor(animFrameCounter / 15) % 2 === 0) {
+          ctx.fillStyle = '#e67e22';
+          ctx.font = 'bold 12px "Courier New", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('⚠️ ALERTA: METEOROS SE APROXIMANDO! ⚠️', canvas.width / 2, 45);
+        }
+      } else if (meteorEvent.state === 'active') {
+        if (Math.floor(animFrameCounter / 18) % 2 === 0) {
+          ctx.fillStyle = '#d63031';
+          ctx.font = 'bold 13px "Courier New", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('☄️ CHUVA DE METEOROS ATIVA! ☄️', canvas.width / 2, 45);
+        }
+      }
+
+      for (let i = meteors.length - 1; i >= 0; i--) {
+        const m = meteors[i];
+        m.x += m.vx;
+        m.y += m.vy;
+        m.angle += m.rotSpeed;
+
+        const renderMX = Math.round(m.x);
+        const renderMY = Math.round(m.y);
+
+        ctx.save();
+        ctx.translate(renderMX + m.width / 2, renderMY + m.height / 2);
+        ctx.rotate(m.angle);
+        if (assets.meteor.complete && assets.meteor.naturalWidth !== 0) {
+          ctx.drawImage(assets.meteor, -m.width / 2, -m.height / 2, m.width, m.height);
+        } else {
+          ctx.fillStyle = '#e17055';
+          ctx.fillRect(-m.width / 2, -m.height / 2, m.width, m.height);
+        }
+        ctx.restore();
+
+        const mCenterX = m.x + m.width / 2;
+        const mCenterY = m.y + m.height / 2;
+        const dinoCenterX = dino.x + dino.width / 2;
+        const dinoCenterY = dino.y + dino.height / 2;
+
+        const dist = Math.hypot(mCenterX - dinoCenterX, mCenterY - dinoCenterY);
+        if (!isGameOver && dist < (m.width / 2 + Math.min(dino.width, dino.height) / 2) - 5) {
+          dino.takeDamage();
+        }
+
+        if (m.y > groundY + 15 || m.x < -70) {
+          meteors.splice(i, 1);
+        }
+      }
+    }
+
+    // --- Boss ---
+    const boss = {
+      active: false,
+      defeated: false,
+      hp: 100,
+      maxHp: 100,
+      x: 850,
+      targetX: 650,
+      baseY: 65,
+      y: 65,
+      width: 82,
+      height: 98,
+      speedY: 0.04,
+      attackCooldown: 0,
+      patternIndex: 0,
+      projectiles: [],
+      laser: { charging: false, active: false, timer: 0, y: 0, height: 28 }
+    };
+
+    function checkBossTrigger() {
+      if (!roomSettings.enableBoss) return;
+      if (score >= 1000 && !boss.active && !boss.defeated) {
+        boss.active = true;
+        boss.hp = 100;
+        boss.x = 850;
+        obstacles.length = 0;
+        meteors.length = 0;
+      }
+    }
+
+    function updateBoss() {
+      if (!boss.active) return;
+      if (boss.x > boss.targetX) boss.x -= 2.0;
+      boss.y = boss.baseY + Math.sin(animFrameCounter * boss.speedY) * 45;
+
+      boss.hp -= 0.04;
+      if (boss.hp <= 0) {
+        boss.hp = 0;
+        boss.active = false;
+        boss.defeated = true;
+        boss.projectiles = [];
+        score += 300;
+        return;
+      }
+
+      boss.attackCooldown++;
+      if (boss.attackCooldown > 110) {
+        boss.attackCooldown = 0;
+        boss.patternIndex = (boss.patternIndex + 1) % 4;
+
+        if (boss.patternIndex === 0) {
+          boss.projectiles.push({
+            type: 'green_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
+            vx: -5.5, vy: 2.5, radius: 11
+          });
+        } else if (boss.patternIndex === 1) {
+          [-2.2, 0, 2.2].forEach(spreadVy => {
+            boss.projectiles.push({
+              type: 'blue_ball', x: boss.x - 10, y: boss.y + boss.height / 2,
+              vx: -6.2, vy: spreadVy, radius: 10
+            });
+          });
+        } else if (boss.patternIndex === 2) {
+          boss.laser.charging = true;
+          boss.laser.timer = 0;
+          boss.laser.y = Math.random() < 0.5 ? groundY - 45 : groundY - 24;
+        } else if (boss.patternIndex === 3) {
+          boss.projectiles.push({
+            type: 'wave', x: boss.x - 10, y: groundY - 18,
+            vx: -7.2, vy: 0, width: 22, height: 20, color: '#e74c3c'
+          });
+        }
+      }
+
+      if (boss.laser.charging) {
+        boss.laser.timer++;
+        if (boss.laser.timer > 40) {
+          boss.laser.charging = false;
+          boss.laser.active = true;
+          boss.laser.timer = 0;
+        }
+      } else if (boss.laser.active) {
+        boss.laser.timer++;
+        if (!isGameOver && dino.y < boss.laser.y + boss.laser.height && dino.y + dino.height > boss.laser.y) {
+          dino.takeDamage();
+        }
+        if (boss.laser.timer > 30) {
+          boss.laser.active = false;
+        }
+      }
+
+      for (let i = boss.projectiles.length - 1; i >= 0; i--) {
+        const p = boss.projectiles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+
+        if (p.type === 'green_ball' && (p.y >= groundY - p.radius || p.y <= 30)) {
+          p.vy *= -1;
+        }
+
+        const dinoCenterX = dino.x + dino.width / 2;
+        const dinoCenterY = dino.y + dino.height / 2;
+
+        if (!isGameOver) {
+          if (p.radius) {
+            if (Math.hypot(p.x - dinoCenterX, p.y - dinoCenterY) < p.radius + dino.width / 3) {
+              dino.takeDamage();
+              boss.projectiles.splice(i, 1);
+              continue;
+            }
+          } else if (p.width) {
+            if (dino.x < p.x + p.width && dino.x + dino.width > p.x && dino.y < p.y + p.height && dino.y + dino.height > p.y) {
+              dino.takeDamage();
+              boss.projectiles.splice(i, 1);
+              continue;
+            }
+          }
+        }
+
+        if (p.x < -30) boss.projectiles.splice(i, 1);
+      }
+    }
+
+    function drawBoss() {
+      if (!boss.active) return;
+      const rx = Math.round(boss.x);
+      const ry = Math.round(boss.y);
+
+      if (assets.boss.complete && assets.boss.naturalWidth !== 0) {
+        ctx.drawImage(assets.boss, rx, ry, boss.width, boss.height);
+      } else {
+        ctx.fillStyle = '#27ae60';
+        ctx.fillRect(rx, ry, boss.width, boss.height);
+      }
+
+      if (boss.laser.charging) {
+        ctx.strokeStyle = Math.floor(animFrameCounter / 3) % 2 === 0 ? '#ff7675' : 'transparent';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.moveTo(0, boss.laser.y + boss.laser.height / 2);
+        ctx.lineTo(canvas.width, boss.laser.y + boss.laser.height / 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (boss.laser.active) {
+        ctx.fillStyle = '#d63031';
+        ctx.fillRect(0, boss.laser.y, canvas.width, boss.laser.height);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, boss.laser.y + 7, canvas.width, boss.laser.height - 14);
+      }
+
+      boss.projectiles.forEach(p => {
+        if (p.type === 'green_ball' || p.type === 'blue_ball') {
+          ctx.fillStyle = p.type === 'green_ball' ? '#2ecc71' : '#3498db';
+          ctx.beginPath();
+          ctx.arc(Math.round(p.x), Math.round(p.y), p.radius, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (p.width) {
+          ctx.fillStyle = p.color;
+          ctx.fillRect(Math.round(p.x), Math.round(p.y), p.width, p.height);
+        }
+      });
+
+      const barW = 220;
+      const barH = 8;
+      const barX = canvas.width / 2 - barW / 2;
+      const barY = 16;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillRect(barX, barY, barW * Math.max(0, boss.hp / boss.maxHp), barH);
+    }
+
+    // --- HUD e Placar ---
+    function drawHUD() {
+      const heartSize = 20;
+      for (let i = 0; i < dino.lives; i++) {
+        const hx = 16 + i * (heartSize + 4);
+        const hy = 14;
+        if (assets.heart.complete && assets.heart.naturalWidth !== 0) {
+          ctx.drawImage(assets.heart, hx, hy, heartSize, heartSize);
+        } else {
+          ctx.fillStyle = '#e74c3c';
+          ctx.fillRect(hx, hy, heartSize, heartSize);
+        }
+      }
+
+      ctx.fillStyle = '#535353';
+      ctx.font = '14px "Courier New", monospace';
+      ctx.textAlign = 'right';
+      const s = String(Math.floor(score)).padStart(5, '0') + 'm';
+      ctx.fillText(`DISTÂNCIA: ${s}`, canvas.width - 16, 26);
+
+      if (netMode !== 'solo') {
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.fillStyle = '#2c3e50';
+        ctx.fillText(`🏆 VIVOS NA PARTIDA:`, 16, 48);
+
+        let row = 0;
+        ctx.fillStyle = isGameOver ? '#e74c3c' : '#27ae60';
+        ctx.fillText(`• ${myNickname} (Você): ${Math.floor(score)}m ${isGameOver ? '[MORTO]' : ''}`, 16, 62);
+        row++;
+
+        remotePlayers.forEach((p) => {
+          ctx.fillStyle = p.isDead ? '#e74c3c' : '#2980b9';
+          ctx.fillText(`• ${p.name}: ${Math.floor(p.score || 0)}m ${p.isDead ? '[MORTO]' : ''}`, 16, 62 + row * 12);
+          row++;
+        });
+      }
+    }
+
+    // --- Verificação de Fim de Partida de Todos os Jogadores ---
+    function checkAllPlayersDead() {
+      if (matchResultsShown) return;
+
+      if (netMode === 'solo') {
+        if (isGameOver) {
+          allDeadCheckCooldown++;
+          if (allDeadCheckCooldown > 75) { // Espera o dino cair no chão
+            showMatchResultsScreen();
+          }
+        }
+        return;
+      }
+
+      if (netMode === 'host') {
+        let allDead = isGameOver;
+        remotePlayers.forEach(p => {
+          if (!p.isDead) allDead = false;
+        });
+
+        if (allDead) {
+          allDeadCheckCooldown++;
+          if (allDeadCheckCooldown > 80) {
+            triggerMultiplayerEndGame();
+          }
+        }
+      }
+    }
+
+    function triggerMultiplayerEndGame() {
+      const allResults = [
+        { name: myNickname, score: Math.floor(score), colorIndex: myPlayerIndex }
+      ];
+      remotePlayers.forEach(p => {
+        allResults.push({ name: p.name, score: Math.floor(p.score || 0), colorIndex: p.colorIndex });
+      });
+
+      // Ordena por maior distância
+      allResults.sort((a, b) => b.score - a.score);
+
+      broadcastToClients({
+        type: 'MATCH_OVER',
+        podium: allResults
+      });
+
+      showMatchResultsScreen(allResults);
+    }
+
+    function showMatchResultsScreen(customPodium = null) {
+      matchResultsShown = true;
+      let podium = customPodium;
+
+      if (!podium) {
+        podium = [{ name: myNickname, score: Math.floor(score), colorIndex: myPlayerIndex }];
+        remotePlayers.forEach(p => {
+          podium.push({ name: p.name, score: Math.floor(p.score || 0), colorIndex: p.colorIndex });
+        });
+        podium.sort((a, b) => b.score - a.score);
+      }
+
+      const listContainer = document.getElementById('podiumListContainer');
+      listContainer.innerHTML = '';
+
+      const medals = ['🥇 1º LUGAR', '🥈 2º LUGAR', '🥉 3º LUGAR', '4º LUGAR', '5º LUGAR', '6º LUGAR'];
+      const rankClasses = ['first', 'second', 'third'];
+
+      podium.forEach((player, idx) => {
+        const item = document.createElement('div');
+        item.className = `podium-item ${rankClasses[idx] || ''}`;
+        const color = PLAYER_COLORS[(player.colorIndex || 0) % PLAYER_COLORS.length];
+
+        item.innerHTML = `
+          <div>
+            <span>${medals[idx] || (idx + 1) + 'º LUGAR'}:</span>
+            <span class="player-color-dot" style="background:${color.hex}; margin-left:6px;"></span>
+            <b>${player.name}</b>
+          </div>
+          <div>${player.score} metros</div>
+        `;
+        listContainer.appendChild(item);
+      });
+
+      const btnRestart = document.getElementById('btnRestartMatch');
+      const waitNotice = document.getElementById('clientWaitRestartNotice');
+
+      if (netMode === 'client') {
+        btnRestart.classList.add('hidden');
+        waitNotice.classList.remove('hidden');
+      } else {
+        btnRestart.classList.remove('hidden');
+        waitNotice.classList.add('hidden');
+      }
+
+      hideAllScreens();
+      document.getElementById('screenMatchResults').classList.remove('hidden');
+    }
+
+    function restartMatchAction() {
+      if (netMode === 'solo') {
+        hideAllScreens();
+        resetGameEngine();
+        loop();
+      } else if (netMode === 'host') {
+        hostStartMatch();
+      }
+    }
+
+    // --- Game Over ---
+    function gameOver() {
+      isGameOver = true;
+      if (score > highScore) highScore = score;
+
+      if (netMode !== 'solo') {
+        syncLocalPlayerToNetwork();
+      }
+    }
+
+    function resetGameEngine() {
+      obstacles.length = 0;
+      meteors.length = 0;
+      platforms.length = 0;
+      score = 0;
+      gameSpeed = parseFloat(roomSettings.initialSpeed) || 5.5;
+      obstacleTimer = 0;
+      platformTimer = 0;
+      groundScrollX = 0;
+      waterScrollX = 0;
+      isGameOver = false;
+      allDeadCheckCooldown = 0;
+      matchResultsShown = false;
+
+      biomeSystem.current = 'desert';
+      biomeSystem.targetBiome = 'desert';
+      biomeSystem.transitioning = false;
+      biomeSystem.skyFactor = 0;
+      biomeSystem.nextChangeDist = 350;
+      biomeSystem.bannerTimer = 0;
+
+      boss.active = false;
+      boss.defeated = false;
+      boss.hp = 100;
+      boss.projectiles = [];
+
+      dino.lives = parseInt(roomSettings.initialLives) || 3;
+      dino.invulnerableTimer = 0;
+      dino.scaredTimer = 0;
+      dino.x = 80;
+      dino.y = groundY - dino.normalHeight + 2;
+      dino.width = dino.normalWidth;
+      dino.height = dino.normalHeight;
+      dino.vx = 0;
+      dino.vy = 0;
+      dino.isGrounded = true;
+      dino.isDucking = false;
+      dino.deadRotation = 0;
+      dino.deadRotSpeed = 0;
+      dino.jumpsRemaining = roomSettings.enableDoubleJump ? 2 : 1;
+
+      meteorEvent.state = 'idle';
+      meteorEvent.nextShowerDist = 220;
+
+      remotePlayers.forEach(p => {
+        p.isDead = false;
+        p.score = 0;
+        p.lives = dino.lives;
+      });
+    }
+
+    // --- Loop Principal ---
+    function loop() {
+      if (!isGameRunning) return;
+
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      animFrameCounter++;
+      if (!isGameOver) {
+        score += 0.15;
+        gameSpeed += 0.00035;
+      }
+
+      biomeSystem.update();
+      updateAndDrawClouds();
+      updateAndDrawMountains();
+      updateAndDrawGround();
+      updateAndDrawPlatforms();
+
+      checkBossTrigger();
+      
+      // Atualiza dino (continua caindo mesmo morto!)
+      dino.update();
+      
+      // Renderiza dinos
+      drawRemotePlayers();
+      dino.draw();
+
+      updateObstacles();
+      updateMeteors();
+      updateBoss();
+      drawBoss();
+
+      drawHUD();
+      biomeSystem.drawBanner();
+
+      // Checa fim de partida
+      checkAllPlayersDead();
+
+      if (netMode !== 'solo' && animFrameCounter % 3 === 0) {
+        syncLocalPlayerToNetwork();
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    // ==========================================
+    // --- REDE MULTIPLAYER P2P (PEERJS) --------
+    // ==========================================
+
+    function generateRoomCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
+      for (let i = 0; i < 4; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return code;
+    }
+
+    function initPeer(customId, onReady) {
+      if (peer) peer.destroy();
+
+      peer = new Peer(customId, {
+        debug: 1,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+          ]
+        }
+      });
+
+      peer.on('open', (id) => {
+        myPeerId = id;
+        document.getElementById('pingIndicator').innerText = '🟢 P2P: Online';
+        if (onReady) onReady(id);
+      });
+
+      peer.on('error', (err) => {
+        console.error('Peer error:', err);
+        document.getElementById('pingIndicator').innerText = '🔴 Erro P2P';
+        alert('Erro de conexão P2P: ' + err.type);
+      });
+    }
+
+    function initHostRoom() {
+      readModifiersFromUI();
+      myNickname = document.getElementById('inputPlayerName').value.trim() || 'HOST_DINO';
+      roomCode = generateRoomCode();
+      const hostPeerId = 'dino-room-' + roomCode;
+
+      netMode = 'host';
+      myPlayerIndex = 0;
+      clientConnections.length = 0;
+      remotePlayers.clear();
+
+      initPeer(hostPeerId, () => {
+        showLobbyScreen();
+        document.getElementById('lobbyRoomCode').innerText = roomCode;
+        document.getElementById('btnHostStart').classList.remove('hidden');
+        document.getElementById('clientWaitNotice').classList.add('hidden');
+        updateLobbyUI();
+
+        peer.on('connection', (conn) => {
+          conn.on('open', () => {
+            const newColorIdx = (clientConnections.length + 1) % PLAYER_COLORS.length;
+            const clientInfo = {
+              id: conn.peer,
+              name: 'Dino_' + (clientConnections.length + 2),
+              colorIndex: newColorIdx,
+              conn: conn,
+              isDead: false,
+              score: 0,
+              lives: roomSettings.initialLives
+            };
+
+            clientConnections.push(clientInfo);
+
+            conn.send({
+              type: 'ROOM_WELCOME',
+              roomSettings: roomSettings,
+              colorIndex: newColorIdx,
+              playerList: getLobbyPlayerList()
+            });
+
+            broadcastLobbyState();
+            updateLobbyUI();
+          });
+
+          conn.on('data', (data) => {
+            handleHostIncomingData(conn.peer, data);
+          });
+
+          conn.on('close', () => {
+            const idx = clientConnections.findIndex(c => c.id === conn.peer);
+            if (idx !== -1) clientConnections.splice(idx, 1);
+            remotePlayers.delete(conn.peer);
+            broadcastLobbyState();
+            updateLobbyUI();
+          });
+        });
+      });
+    }
+
+    function handleHostIncomingData(peerId, data) {
+      if (data.type === 'SET_NAME') {
+        const client = clientConnections.find(c => c.id === peerId);
+        if (client) {
+          client.name = data.name;
+          broadcastLobbyState();
+          updateLobbyUI();
+        }
+      } else if (data.type === 'PLAYER_STATE') {
+        remotePlayers.set(peerId, {
+          id: peerId,
+          name: data.name,
+          x: data.x,
+          y: data.y,
+          width: data.width,
+          height: data.height,
+          isGrounded: data.isGrounded,
+          isDucking: data.isDucking,
+          isDead: data.isDead,
+          deadRotation: data.deadRotation,
+          lives: data.lives,
+          score: data.score,
+          colorIndex: data.colorIndex
+        });
+
+        broadcastToClients({
+          type: 'REMOTE_PLAYER_UPDATE',
+          player: remotePlayers.get(peerId)
+        }, peerId);
+      }
+    }
+
+    function broadcastToClients(msg, excludePeerId = null) {
+      clientConnections.forEach(client => {
+        if (client.id !== excludePeerId && client.conn.open) {
+          client.conn.send(msg);
+        }
+      });
+    }
+
+    function broadcastLobbyState() {
+      const list = getLobbyPlayerList();
+      broadcastToClients({
+        type: 'LOBBY_UPDATE',
+        playerList: list,
+        roomSettings: roomSettings
+      });
+    }
+
+    function getLobbyPlayerList() {
+      const list = [{ name: myNickname + ' (Dono)', colorIndex: 0, id: myPeerId }];
+      clientConnections.forEach(c => {
+        list.push({ name: c.name, colorIndex: c.colorIndex, id: c.id });
+      });
+      return list;
+    }
+
+    // --- Cliente ---
+    function joinRoomByCode() {
+      const targetCode = document.getElementById('inputRoomCode').value.trim().toUpperCase();
+      if (targetCode.length !== 4) {
+        document.getElementById('joinStatusMessage').innerText = 'Digite um código válido de 4 caracteres.';
+        return;
+      }
+
+      myNickname = document.getElementById('inputPlayerName').value.trim() || 'CLIENT_DINO';
+      netMode = 'client';
+      remotePlayers.clear();
+
+      document.getElementById('joinStatusMessage').innerText = 'Conectando à sala...';
+      document.getElementById('btnConnectRoom').disabled = true;
+
+      initPeer(null, () => {
+        const hostPeerId = 'dino-room-' + targetCode;
+        hostConnection = peer.connect(hostPeerId, { reliable: true });
+
+        hostConnection.on('open', () => {
+          document.getElementById('btnConnectRoom').disabled = false;
+          roomCode = targetCode;
+          showLobbyScreen();
+          document.getElementById('lobbyRoomCode').innerText = roomCode;
+          document.getElementById('btnHostStart').classList.add('hidden');
+          document.getElementById('clientWaitNotice').classList.remove('hidden');
+
+          hostConnection.send({
+            type: 'SET_NAME',
+            name: myNickname
+          });
+        });
+
+        hostConnection.on('data', (data) => {
+          handleClientIncomingData(data);
+        });
+
+        hostConnection.on('close', () => {
+          alert('Conexão encerrada pelo Host.');
+          leaveRoom();
+        });
+
+        hostConnection.on('error', (err) => {
+          document.getElementById('joinStatusMessage').innerText = 'Não foi possível encontrar a sala.';
+          document.getElementById('btnConnectRoom').disabled = false;
+        });
+      });
+    }
+
+    function handleClientIncomingData(data) {
+      if (data.type === 'ROOM_WELCOME' || data.type === 'LOBBY_UPDATE') {
+        roomSettings = data.roomSettings;
+        if (data.colorIndex !== undefined) myPlayerIndex = data.colorIndex;
+        renderLobbyPlayerList(data.playerList);
+        renderLobbySettingsSummary();
+      } else if (data.type === 'START_MATCH') {
+        hideAllScreens();
+        resetGameEngine();
+        isGameRunning = true;
+        document.getElementById('statusRoomInfo').innerText = `Sala: ${roomCode} (Online)`;
+        loop();
+      } else if (data.type === 'REMOTE_PLAYER_UPDATE') {
+        remotePlayers.set(data.player.id, data.player);
+      } else if (data.type === 'BIOME_TRANSITION') {
+        biomeSystem.startTransition(data.toBiome);
+      } else if (data.type === 'MATCH_OVER') {
+        showMatchResultsScreen(data.podium);
+      }
+    }
+
+    function hostStartMatch() {
+      broadcastToClients({ type: 'START_MATCH' });
+      hideAllScreens();
+      resetGameEngine();
+      isGameRunning = true;
+      document.getElementById('statusRoomInfo').innerText = `Sala: ${roomCode} [Host]`;
+      loop();
+    }
+
+    function syncLocalPlayerToNetwork() {
+      const statePacket = {
+        type: 'PLAYER_STATE',
+        name: myNickname,
+        x: dino.x,
+        y: dino.y,
+        width: dino.width,
+        height: dino.height,
+        isGrounded: dino.isGrounded,
+        isDucking: dino.isDucking,
+        isDead: isGameOver,
+        deadRotation: dino.deadRotation,
+        lives: dino.lives,
+        score: score,
+        colorIndex: myPlayerIndex
+      };
+
+      if (netMode === 'client' && hostConnection && hostConnection.open) {
+        hostConnection.send(statePacket);
+      } else if (netMode === 'host') {
+        broadcastToClients({
+          type: 'REMOTE_PLAYER_UPDATE',
+          player: { id: myPeerId, ...statePacket }
+        });
+      }
+    }
+
+    // --- UI Helpers ---
+    function showMainMenu() {
+      hideAllScreens();
+      document.getElementById('screenMainMenu').classList.remove('hidden');
+      isGameRunning = false;
+    }
+
+    function showCreateRoomScreen() {
+      hideAllScreens();
+      document.getElementById('screenCreateRoom').classList.remove('hidden');
+    }
+
+    function showJoinRoomScreen() {
+      hideAllScreens();
+      document.getElementById('screenJoinRoom').classList.remove('hidden');
+      document.getElementById('joinStatusMessage').innerText = '';
+    }
+
+    function showLobbyScreen() {
+      hideAllScreens();
+      document.getElementById('screenLobby').classList.remove('hidden');
+    }
+
+    function hideAllScreens() {
+      document.querySelectorAll('.overlay-screen').forEach(el => el.classList.add('hidden'));
+    }
+
+    function readModifiersFromUI() {
+      roomSettings = {
+        enableMeteors: document.getElementById('modMeteors').checked,
+        enableNyan: document.getElementById('modNyan').checked,
+        enableFrogs: document.getElementById('modFrogs').checked,
+        enableFlyers: document.getElementById('modFlyers').checked,
+        enableCactus: document.getElementById('modCactus').checked,
+        enableWaterBiome: document.getElementById('modWaterBiome').checked,
+        enableBoss: document.getElementById('modBoss').checked,
+        enableDoubleJump: document.getElementById('modDoubleJump').checked,
+        initialLives: parseInt(document.getElementById('modLives').value),
+        initialSpeed: parseFloat(document.getElementById('modSpeed').value)
+      };
+    }
+
+    function updateLobbyUI() {
+      const list = getLobbyPlayerList();
+      renderLobbyPlayerList(list);
+      renderLobbySettingsSummary();
+    }
+
+    function renderLobbyPlayerList(list) {
+      const container = document.getElementById('lobbyPlayersList');
+      container.innerHTML = '';
+      document.getElementById('playerCount').innerText = list.length;
+
+      list.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'player-tag';
+        const color = PLAYER_COLORS[(p.colorIndex || 0) % PLAYER_COLORS.length];
+        item.innerHTML = `
+          <div>
+            <span class="player-color-dot" style="background:${color.hex};"></span>
+            <b>${p.name}</b>
+          </div>
+          <span style="font-size:10px; color:#27ae60;">● Conectado</span>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function renderLobbySettingsSummary() {
+      const sum = [];
+      if (roomSettings.enableMeteors) sum.push('☄️ Meteoro');
+      if (roomSettings.enableNyan) sum.push('🌈 Nyan');
+      if (roomSettings.enableFrogs) sum.push('🐸 Sapos');
+      if (roomSettings.enableFlyers) sum.push('🦅 Pterodáctilos');
+      if (roomSettings.enableWaterBiome) sum.push('🌊 Água');
+      if (roomSettings.enableBoss) sum.push('👾 Boss');
+      if (roomSettings.enableDoubleJump) sum.push('🦘 Pulo Duplo');
+
+      document.getElementById('lobbyFeaturesSummary').innerHTML = `
+        <b>Ativos:</b> ${sum.join(', ') || 'Nenhum'} | 
+        <b>Vidas:</b> ${roomSettings.initialLives} | 
+        <b>Velocidade:</b> ${roomSettings.initialSpeed}
+      `;
+    }
+
+    function leaveRoom() {
+      if (peer) peer.destroy();
+      netMode = 'solo';
+      showMainMenu();
+    }
+
+    function startSoloGame() {
+      myNickname = document.getElementById('inputPlayerName').value.trim() || 'SOLO_DINO';
+      netMode = 'solo';
+      hideAllScreens();
+      readModifiersFromUI();
+      resetGameEngine();
+      isGameRunning = true;
+      document.getElementById('statusRoomInfo').innerText = 'Modo: Solo Offline';
+      loop();
+    }
+
+    document.getElementById('lobbyRoomCode').addEventListener('click', () => {
+      if (roomCode) {
+        navigator.clipboard.writeText(roomCode);
+        alert(`Código ${roomCode} copiado com sucesso!`);
+      }
+    });
+
+    // --- Teclado ---
+    window.addEventListener('keydown', (e) => {
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        e.preventDefault();
+      }
+
+      if (e.code === 'ArrowUp' || e.code === 'Space') {
+        dino.jump();
+      }
+
+      if (e.code === 'ArrowDown') keys.down = true;
+      if (e.code === 'ArrowLeft') keys.left = true;
+      if (e.code === 'ArrowRight') keys.right = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'ArrowDown') keys.down = false;
+      if (e.code === 'ArrowLeft') keys.left = false;
+      if (e.code === 'ArrowRight') keys.right = false;
+    });
+  </script>
+</body>
+</html>
