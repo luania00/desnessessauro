@@ -965,6 +965,7 @@
       for (let i = 0; i < data.length; i += 4) {
         const a = data[i + 3];
         if (a === 0) continue;
+        visiblePixels++;
 
         const r = data[i], g = data[i + 1], b = data[i + 2];
         const max = Math.max(r, g, b);
@@ -986,8 +987,40 @@
       }
 
       tintCtx.putImageData(img, 0, 0);
+      if (visiblePixels === 0) return false;
       ctx.drawImage(tintCanvas, Math.round(x), Math.round(y));
       return true;
+    }
+
+    function drawFallbackDino(x, y, width, height, hex = '#535353', flying = false) {
+      const r = Math.max(3, Math.round(Math.min(width, height) * 0.12));
+      const bodyW = Math.round(width * 0.62);
+      const bodyH = Math.round(height * 0.62);
+      const bodyX = Math.round(x + width * 0.25);
+      const bodyY = Math.round(y + height * 0.25);
+      ctx.save();
+      ctx.fillStyle = hex;
+      ctx.fillRect(bodyX, bodyY, bodyW, bodyH);
+      ctx.fillRect(Math.round(x + width * 0.05), Math.round(y + height * 0.48), Math.round(width * 0.28), r);
+      ctx.fillRect(Math.round(x + width * 0.58), Math.round(y + height * 0.1), Math.round(width * 0.28), Math.round(height * 0.23));
+      ctx.fillRect(Math.round(x + width * 0.66), Math.round(y + height * 0.03), Math.round(width * 0.23), r);
+      ctx.fillRect(Math.round(x + width * 0.35), Math.round(y + height * 0.82), r, Math.round(height * 0.18));
+      ctx.fillRect(Math.round(x + width * 0.62), Math.round(y + height * 0.82), r, Math.round(height * 0.18));
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(x + width * 0.72), Math.round(y + height * 0.14), 5, 5);
+      ctx.fillStyle = '#111111';
+      ctx.fillRect(Math.round(x + width * 0.76), Math.round(y + height * 0.14), 2, 2);
+      if (flying) {
+        ctx.strokeStyle = hex;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x + width * 0.28), Math.round(y + height * 0.2));
+        ctx.lineTo(Math.round(x - width * 0.05), Math.round(y - height * 0.12));
+        ctx.moveTo(Math.round(x + width * 0.72), Math.round(y + height * 0.2));
+        ctx.lineTo(Math.round(x + width * 1.02), Math.round(y - height * 0.12));
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     // --- Dino Local ---
@@ -1241,15 +1274,15 @@
 
         const drawX = rx;
         const drawY = ry - (this.isOnBike && !isGameOver ? 3 : 0);
+        let drewSprite = false;
         if (roomSettings.enableDinoColors) {
-          if (!drawTintedSprite(currentSprite, drawX, drawY, this.width, this.height, localColor, isGameOver ? 0.55 : 0.82)) {
-            if (currentSprite.complete && currentSprite.naturalWidth !== 0) {
-              ctx.drawImage(currentSprite, drawX, drawY, this.width, this.height);
-            }
-          }
+          drewSprite = drawTintedSprite(currentSprite, drawX, drawY, this.width, this.height, localColor, isGameOver ? 0.55 : 0.82);
         } else if (currentSprite.complete && currentSprite.naturalWidth !== 0) {
-          // Sem cores: usa o sprite original exatamente como foi criado.
           ctx.drawImage(currentSprite, drawX, drawY, this.width, this.height);
+          drewSprite = true;
+        }
+        if (!drewSprite) {
+          drawFallbackDino(drawX, drawY, this.width, this.height, localColor, flightModeActive);
         }
 
         ctx.restore();
@@ -1301,14 +1334,15 @@
         else if (!player.isGrounded) spriteToDraw = assets.jump;
         else if (player.isDucking) spriteToDraw = assets.duck1;
 
+        let drewRemoteSprite = false;
         if (roomSettings.enableDinoColors) {
-          if (!drawTintedSprite(spriteToDraw, rx, ry, pWidth, pHeight, pColor.hex, player.isDead ? 0.45 : 0.82)) {
-            if (spriteToDraw.complete && spriteToDraw.naturalWidth !== 0) {
-              ctx.drawImage(spriteToDraw, rx, ry, pWidth, pHeight);
-            }
-          }
+          drewRemoteSprite = drawTintedSprite(spriteToDraw, rx, ry, pWidth, pHeight, pColor.hex, player.isDead ? 0.45 : 0.82);
         } else if (spriteToDraw.complete && spriteToDraw.naturalWidth !== 0) {
           ctx.drawImage(spriteToDraw, rx, ry, pWidth, pHeight);
+          drewRemoteSprite = true;
+        }
+        if (!drewRemoteSprite) {
+          drawFallbackDino(rx, ry, pWidth, pHeight, pColor.hex, !!player.isFlying);
         }
         ctx.restore();
       });
@@ -2550,6 +2584,9 @@
       ctx.shadowColor = 'transparent';
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Fundo base: o mundo nunca pode ficar transparente/branco sem chão só porque um sprite falhou.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       animFrameCounter++;
 
       if (netMode === 'client') {
