@@ -635,6 +635,10 @@
     let hostConnection = null;
     const clientConnections = [];
     const remotePlayers = new Map();
+    const MAX_MULTIPLAYER_PLAYERS = 8;
+    let pendingJumpInputs = 0;
+    let lastInputSentAt = 0;
+    let lastInputSignature = '';
 
     // Mundo autoritativo do Host: evita que obstáculos/biomas saiam de sincronia.
     let latestWorldSnapshot = null;
@@ -780,7 +784,7 @@
         ctx.fillRect(rx + 6, ry + 5, 3, 3);
         ctx.fillRect(rx + p.width - 9, ry + 5, 3, 3);
 
-        if (p.x + p.width < -30) platforms.splice(i, 1);
+        if (netMode !== 'client' && p.x + p.width < -30) platforms.splice(i, 1);
       }
     }
 
@@ -791,10 +795,10 @@
       { x: 680, y: 25, width: 58, height: 22, speedFactor: 0.10 }
     ];
 
-    function updateAndDrawClouds() {
+    function updateAndDrawClouds(advance = true) {
       for (let i = 0; i < clouds.length; i++) {
         const c = clouds[i];
-        c.x -= gameSpeed * c.speedFactor;
+        if (advance) c.x -= gameSpeed * c.speedFactor;
         if (c.x + c.width < 0) {
           c.x = canvas.width + 50;
           c.y = 20 + (i * 20);
@@ -814,9 +818,11 @@
     const mountainWidth = 320;
     const mountainHeight = 65;
 
-    function updateAndDrawMountains() {
-      mountainX -= gameSpeed * 0.28;
-      if (mountainX <= -mountainWidth) mountainX = 0;
+    function updateAndDrawMountains(advance = true) {
+      if (advance) {
+        mountainX -= gameSpeed * 0.28;
+        if (mountainX <= -mountainWidth) mountainX = 0;
+      }
       const y = groundY - mountainHeight + 1;
 
       for (let x = mountainX; x < canvas.width + mountainWidth; x += mountainWidth) {
@@ -836,9 +842,11 @@
     }
 
     // --- Chão e Água ---
-    function updateAndDrawGround() {
-      groundScrollX -= gameSpeed;
-      waterScrollX -= gameSpeed * 1.1;
+    function updateAndDrawGround(advance = true) {
+      if (advance) {
+        groundScrollX -= gameSpeed;
+        waterScrollX -= gameSpeed * 1.1;
+      }
 
       const gWidth = assets.ground.naturalWidth || 800;
       const gHeight = assets.ground.naturalHeight || 24;
@@ -1479,6 +1487,48 @@
         if (obs.x + obs.width < -40) {
           obstacles.splice(i, 1);
         }
+      }
+    }
+
+
+    // Desenho puro para clientes: não move nem colide. O Host já transmitiu o estado.
+    function drawObstaclesOnly() {
+      for (const obs of obstacles) {
+        const renderObsX = Math.round(obs.x);
+        const renderObsY = Math.round(obs.y);
+        if (obs.type === 'cactus') {
+          if (assets.cactus.complete && assets.cactus.naturalWidth !== 0) ctx.drawImage(assets.cactus, renderObsX, renderObsY, obs.width, obs.height);
+        } else if (obs.type === 'flyer') {
+          const flySprite = Math.floor(animFrameCounter / 8) % 2 === 0 ? assets.fly1 : assets.fly2;
+          if (flySprite.complete && flySprite.naturalWidth !== 0) ctx.drawImage(flySprite, renderObsX, renderObsY, obs.width, obs.height);
+        } else if (obs.type === 'frog') {
+          ctx.save();
+          const fastWobble = Math.sin(animFrameCounter * 0.28 + (obs.wobbleOffset || 0)) * 0.16;
+          ctx.translate(renderObsX + obs.width / 2, groundY + 2);
+          ctx.rotate(-0.08 + fastWobble);
+          if (assets.frog.complete && assets.frog.naturalWidth !== 0) ctx.drawImage(assets.frog, -obs.width / 2, -obs.height, obs.width, obs.height);
+          ctx.restore();
+        } else if (obs.type === 'nyan') {
+          ctx.save();
+          ctx.translate(renderObsX + obs.width, renderObsY);
+          ctx.scale(-1, 1);
+          if (assets.nyan.complete && assets.nyan.naturalWidth !== 0) ctx.drawImage(assets.nyan, 0, 0, obs.width, obs.height);
+          ctx.restore();
+        }
+      }
+    }
+
+    function drawMeteorsOnly() {
+      for (const m of meteors) {
+        const renderMX = Math.round(m.x);
+        const renderMY = Math.round(m.y);
+        ctx.save();
+        ctx.translate(renderMX + m.width / 2, renderMY + m.height / 2);
+        ctx.rotate(m.angle || 0);
+        if (assets.meteor.complete && assets.meteor.naturalWidth !== 0) {
+          ctx.drawImage(assets.meteor, -m.width / 2, -m.height / 2, m.width, m.height);
+        }
+        ctx.restore();
       }
     }
 
@@ -2427,10 +2477,10 @@
       earthquakeEvent.timer = 0;
       earthquakeEvent.shake = 0;
 
-      remotePlayers.forEach(p => {
-        p.isDead = false;
-        p.score = 0;
-        p.lives = dino.lives;
+      remotePlayers.forEach((p, id) => {
+        const client = clientConnections.find(c => c.id === id);
+        const fresh = client ? createAuthoritativeRemotePlayer(client) : p;
+        Object.assign(p, fresh);
       });
     }
 
@@ -2455,55 +2505,56 @@
 
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
       animFrameCounter++;
 
-      // O Host (ou Solo) é o dono do mundo. Clientes apenas aplicam o snapshot.
       if (netMode === 'client') {
+        // CLIENTE: nunca simula o mundo. Só renderiza o último snapshot do Host.
         applyWorldSnapshot();
-        updateFlightMode();
+        sendInputState(false);
       } else {
+        // HOST/SOLO: único simulador autoritativo do mundo.
         if (!isGameOver) {
           score += 0.15;
           gameSpeed += 0.00035;
         }
 
         updateFlightMode();
-        remotePlayers.forEach(p => { if (p.hitCooldown > 0) p.hitCooldown--; });
+        remotePlayers.forEach(p => {
+          if (p.hitCooldown > 0) p.hitCooldown--;
+          if (p.invulnerableTimer > 0) p.invulnerableTimer--;
+          if (p.scaredTimer > 0) p.scaredTimer--;
+        });
+
         biomeSystem.update();
         updateEarthquake();
         updateBenicioRain();
         updateBikePowerUps();
         checkBossTrigger();
+        dino.update();
+        updateRemotePlayersAuthoritative();
+        updateObstacles();
+        updateMeteors();
         updateBoss();
         publishWorldSnapshot();
       }
 
-      // Tremor visual compartilhado.
       const shakeX = getScreenShakeX();
       const shakeY = shakeX ? Math.sin(animFrameCounter * 2.4) * Math.abs(shakeX) * 0.55 : 0;
       ctx.save();
       if (shakeX || shakeY) ctx.translate(Math.round(shakeX), Math.round(shakeY));
 
-      updateAndDrawClouds();
-      updateAndDrawMountains();
-      updateAndDrawGround();
-
-      // Objetos do mundo são movimentados pelo Host e desenhados depois do chão.
+      const advanceWorldVisuals = netMode !== 'client';
+      updateAndDrawClouds(advanceWorldVisuals);
+      updateAndDrawMountains(advanceWorldVisuals);
+      updateAndDrawGround(advanceWorldVisuals);
       updateAndDrawPlatforms();
+
       if (netMode === 'client') drawBikePowerUpsOnly();
-      if (netMode !== 'client') {
-        updateObstacles();
-        updateMeteors();
-      }
+      drawObstaclesOnly();
+      drawMeteorsOnly();
       drawBenicios();
 
-      dino.update();
-
-      if (netMode !== 'client') {
-        checkBenicioCollisions();
-      }
-
+      // CLIENTE não chama dino.update(): a posição vem 100% do Host.
       drawRemotePlayers();
       dino.draw();
       drawBoss();
@@ -2515,8 +2566,10 @@
       biomeSystem.drawBanner();
       checkAllPlayersDead();
 
-      if (netMode !== 'solo') {
-        syncLocalPlayerToNetwork();
+      if (netMode === 'client') {
+        // Mantém a sensação de controle instantâneo apenas enviando inputs.
+        // A posição definitiva continua sendo do Host.
+        sendInputState(false);
       }
 
       animationRequestId = requestAnimationFrame(() => loop(token));
@@ -2593,7 +2646,7 @@
 
     function publishWorldSnapshot() {
       if (netMode !== 'host') return;
-      if (animFrameCounter % 2 !== 0) return;
+      if (animFrameCounter % 4 !== 0) return;
 
       const snapshot = {
         type: 'WORLD_SNAPSHOT',
@@ -2601,6 +2654,8 @@
         gameSpeed,
         groundScrollX,
         waterScrollX,
+        mountainX,
+        clouds: clouds.map(c => ({ x: c.x, y: c.y })),
         biome: {
           current: biomeSystem.current,
           targetBiome: biomeSystem.targetBiome,
@@ -2666,6 +2721,10 @@
       gameSpeed = latestWorldSnapshot.gameSpeed;
       groundScrollX = latestWorldSnapshot.groundScrollX;
       waterScrollX = latestWorldSnapshot.waterScrollX;
+      if (Number.isFinite(latestWorldSnapshot.mountainX)) mountainX = latestWorldSnapshot.mountainX;
+      if (Array.isArray(latestWorldSnapshot.clouds)) {
+        latestWorldSnapshot.clouds.forEach((c, i) => { if (clouds[i]) { clouds[i].x = c.x; clouds[i].y = c.y; } });
+      }
 
       if (latestWorldSnapshot.biome) {
         Object.assign(biomeSystem, latestWorldSnapshot.biome);
@@ -2701,6 +2760,10 @@
       // Os jogadores também fazem parte do snapshot: todos os clientes
       // enxergam exatamente a mesma posição/estado de cada Dino.
       if (Array.isArray(latestWorldSnapshot.players)) {
+        const snapshotIds = new Set(latestWorldSnapshot.players.map(p => p.id));
+        for (const id of remotePlayers.keys()) {
+          if (id !== myPeerId && !snapshotIds.has(id)) remotePlayers.delete(id);
+        }
         latestWorldSnapshot.players.forEach(player => {
           remotePlayers.set(player.id, { ...player });
           if (netMode === 'client' && player.id === myPeerId) {
@@ -2813,6 +2876,11 @@
         updateLobbyUI();
 
         peer.on('connection', (conn) => {
+          if (clientConnections.length >= MAX_MULTIPLAYER_PLAYERS - 1) {
+            conn.on('open', () => conn.send({ type: 'ROOM_FULL', maxPlayers: MAX_MULTIPLAYER_PLAYERS }));
+            conn.on('open', () => conn.close());
+            return;
+          }
           const registerClient = () => {
             const newColorIdx = (clientConnections.length + 1) % PLAYER_COLORS.length;
             const clientInfo = {
@@ -2827,6 +2895,7 @@
             };
 
             clientConnections.push(clientInfo);
+            remotePlayers.set(conn.peer, createAuthoritativeRemotePlayer(clientInfo));
 
             conn.send({
               type: 'ROOM_WELCOME',
@@ -2863,56 +2932,230 @@
       if (data.type === 'SET_NAME') {
         const client = clientConnections.find(c => c.id === peerId);
         if (client) {
-          client.name = data.name;
+          const safeName = String(data.name || '').trim().slice(0, 10) || client.name;
+          client.name = safeName;
+          const player = remotePlayers.get(peerId);
+          if (player) player.name = safeName;
           broadcastLobbyState();
           updateLobbyUI();
         }
-      } else if (data.type === 'PLAYER_STATE') {
-        const previous = remotePlayers.get(peerId) || {};
-        const player = {
-          id: peerId,
-          name: data.name,
-          x: Number.isFinite(data.x) ? data.x : (previous.x ?? 80),
-          y: Number.isFinite(data.y) ? data.y : (previous.y ?? groundY - 48),
-          width: Number.isFinite(data.width) ? data.width : (previous.width ?? 44),
-          height: Number.isFinite(data.height) ? data.height : (previous.height ?? 48),
-          isGrounded: !!data.isGrounded,
-          isDucking: !!data.isDucking,
-          // Vida/morte são mantidas pelo Host; o cliente não pode alterá-las.
-          isDead: !!previous.isDead,
-          deadRotation: previous.deadRotation || 0,
-          lives: Number.isFinite(previous.lives) ? previous.lives : (Number(roomSettings.initialLives) || 3),
-          score: score,
-          colorIndex: previous.colorIndex ?? data.colorIndex ?? 1,
-          isFlying: !!data.isFlying,
-          isOnBike: !!previous.isOnBike,
-          bikeTimer: Math.max(0, previous.bikeTimer || 0),
-          isWheelie: !!data.isWheelie,
-          hitCooldown: Math.max(0, previous.hitCooldown || 0)
-        };
+        return;
+      }
 
-        remotePlayers.set(peerId, player);
+      if (data.type === 'PLAYER_INPUT') {
+        let player = remotePlayers.get(peerId);
+        if (!player) {
+          const client = clientConnections.find(c => c.id === peerId);
+          if (!client) return;
+          player = createAuthoritativeRemotePlayer(client);
+          remotePlayers.set(peerId, player);
+        }
+
+        player.input.left = !!data.left;
+        player.input.right = !!data.right;
+        player.input.down = !!data.down;
+        const jumps = Math.max(0, Math.min(3, Number(data.jumps) || 0));
+        player.pendingJumps = Math.min(3, player.pendingJumps + jumps);
+        player.lastInputAt = performance.now();
+      }
+    }
+
+    function createAuthoritativeRemotePlayer(client) {
+      const lives = Number(roomSettings.initialLives) || 3;
+      return {
+        id: client.id,
+        name: client.name,
+        x: 80,
+        y: groundY - 48,
+        width: 44,
+        height: 48,
+        normalWidth: 44,
+        normalHeight: 48,
+        duckWidth: 56,
+        duckHeight: 28,
+        vy: 0,
+        speed: 4.5,
+        gravity: 0.55,
+        jumpForce: -11,
+        jumpsRemaining: roomSettings.enableDoubleJump ? 2 : 1,
+        isGrounded: true,
+        isDucking: false,
+        isDead: false,
+        deadRotation: 0,
+        deadRotSpeed: 0,
+        lives,
+        score: 0,
+        colorIndex: client.colorIndex,
+        isFlying: false,
+        isOnBike: false,
+        bikeTimer: 0,
+        isWheelie: false,
+        wheelieAngle: 0,
+        invulnerableTimer: 0,
+        scaredTimer: 0,
+        hitCooldown: 0,
+        pendingJumps: 0,
+        input: { left: false, right: false, down: false },
+        lastInputAt: performance.now()
+      };
+    }
+
+    function authoritativeRemoteJump(player) {
+      if (!player || player.isDead) return;
+      if (flightModeActive) {
+        player.vy = -8.0;
+        player.isGrounded = false;
+        player.isDucking = false;
+        return;
+      }
+      if (player.isOnBike) {
+        player.isWheelie = !player.isWheelie;
+        return;
+      }
+      const maxJumps = roomSettings.enableDoubleJump ? 2 : 1;
+      if (player.jumpsRemaining > 0) {
+        player.vy = player.jumpForce;
+        player.isGrounded = false;
+        player.jumpsRemaining--;
+      }
+    }
+
+    function updateRemotePlayersAuthoritative() {
+      if (netMode !== 'host') return;
+
+      remotePlayers.forEach(player => {
+        if (player.pendingJumps > 0) {
+          const count = player.pendingJumps;
+          player.pendingJumps = 0;
+          for (let i = 0; i < count; i++) authoritativeRemoteJump(player);
+        }
+
+        if (player.isDead) {
+          player.vy += player.gravity * 0.9;
+          player.y += player.vy;
+          player.x += player.deadRotSpeed ? -2 : 0;
+          player.deadRotation += player.deadRotSpeed || 0;
+          if (player.y >= groundY - player.normalHeight + 8) {
+            player.y = groundY - player.normalHeight + 8;
+            player.vy = 0;
+            player.deadRotSpeed = 0;
+            player.deadRotation = -Math.PI / 2;
+          }
+          return;
+        }
+
+        player.score = score;
+        if (player.bikeTimer > 0) {
+          // updateBikePowerUps() já decreta o timer dos jogadores remotos.
+          if (player.bikeTimer <= 0) {
+            player.bikeTimer = 0;
+            player.isOnBike = false;
+            player.isWheelie = false;
+          }
+        }
+        if (!player.isOnBike) player.isWheelie = false;
+        player.wheelieAngle += ((player.isWheelie ? -0.32 : 0) - player.wheelieAngle) * 0.22;
+
+        const k = player.input || { left:false, right:false, down:false };
+        if (flightModeActive) {
+          player.isFlying = true;
+          player.isDucking = false;
+          player.width = player.normalWidth;
+          player.height = player.normalHeight;
+          const moveSpeed = player.speed * (player.isOnBike ? 1.35 : 1) * 0.9;
+          if (k.left) player.x -= moveSpeed;
+          if (k.right) player.x += moveSpeed;
+          player.vy += 0.42;
+          player.vy = Math.max(-10, Math.min(10, player.vy));
+          player.y += player.vy;
+          const minY = 18;
+          const maxY = groundY - player.height - 12;
+          if (player.y < minY) { player.y = minY; player.vy = 0; }
+          if (player.y > maxY) { player.y = maxY; player.vy = 0; }
+          player.x = Math.max(10, Math.min(canvas.width - 20 - player.width, player.x));
+          player.isGrounded = false;
+          return;
+        }
+
+        player.isFlying = false;
+        const moveSpeed = player.speed * (player.isOnBike ? 1.75 : 1);
+        if (k.left) player.x -= moveSpeed;
+        if (k.right) player.x += moveSpeed;
+        player.x = Math.max(10, Math.min(canvas.width - 20 - player.width, player.x));
+
+        if (k.down) {
+          if (player.isGrounded) {
+            player.isDucking = true;
+            player.width = player.duckWidth;
+            player.height = player.duckHeight;
+          } else {
+            player.vy += 1.2;
+          }
+        } else if (player.isDucking) {
+          player.isDucking = false;
+          player.width = player.normalWidth;
+          player.height = player.normalHeight;
+        }
+
+        player.vy += player.gravity;
+        player.y += player.vy;
+        let landed = false;
+        const cx = player.x + player.width / 2;
+        const solid = biomeSystem.isSolidGroundAt(cx) || boss.active;
+
+        if (solid) {
+          if (player.y >= groundY - player.height + 2) {
+            player.y = groundY - player.height + 2;
+            player.vy = 0;
+            landed = true;
+          }
+        } else {
+          for (const platform of platforms) {
+            const feet = player.y + player.height;
+            const prevFeet = feet - player.vy;
+            if (player.vy >= 0 && prevFeet <= platform.y + 8 && feet >= platform.y &&
+                player.x + player.width - 8 > platform.x && player.x + 8 < platform.x + platform.width) {
+              player.y = platform.y - player.height;
+              player.vy = 0;
+              landed = true;
+              break;
+            }
+          }
+          if (player.y >= groundY - 8) {
+            applyDamageToRemotePlayer(player);
+            player.vy = -9.5;
+            player.jumpsRemaining = 1;
+          }
+        }
+
+        player.isGrounded = landed;
+        if (landed) player.jumpsRemaining = roomSettings.enableDoubleJump ? 2 : 1;
+
         hostValidateRemotePlayer(player);
+      });
+    }
 
-        // O Host retransmite o estado para TODOS, inclusive para quem enviou.
-        // Assim todos desenham exatamente o mesmo estado do jogador.
-        broadcastToClients({
-          type: 'REMOTE_PLAYER_UPDATE',
-          player: { ...remotePlayers.get(peerId) }
-        });
+    function applyDamageToRemotePlayer(player) {
+      if (!player || player.isDead || player.invulnerableTimer > 0) return;
+      player.lives = Math.max(0, Number(player.lives || 0) - 1);
+      player.invulnerableTimer = 90;
+      player.scaredTimer = 40;
+      if (player.lives <= 0) {
+        player.lives = 0;
+        player.isDead = true;
+        player.deadRotSpeed = -0.09;
+        player.vy = -6.5;
+        player.isGrounded = false;
       }
     }
 
     function hostValidateRemotePlayer(player) {
-      if (netMode !== 'host' || !player || player.isDead) return;
-      if (player.hitCooldown > 0) return;
-
+      if (netMode !== 'host' || !player || player.isDead || player.hitCooldown > 0) return;
       const body = { x: player.x, y: player.y, width: player.width || 44, height: player.height || 48 };
       let hit = false;
 
-      if (!flightModeActive && isGroundHoleAt(body.x + body.width / 2) && body.y + body.height >= groundY - 6) {
-        hit = true;
-      }
+      if (!flightModeActive && isGroundHoleAt(body.x + body.width / 2) && body.y + body.height >= groundY - 6) hit = true;
+
       if (!hit) {
         for (let i = obstacles.length - 1; i >= 0; i--) {
           const obs = obstacles[i];
@@ -2920,20 +3163,17 @@
             if (player.isOnBike && player.bikeTimer > 0) {
               score += 12;
               obstacles.splice(i, 1);
-            } else {
-              hit = true;
-            }
+            } else hit = true;
             break;
           }
         }
       }
+
       if (!hit) {
         const cx = body.x + body.width / 2;
         const cy = body.y + body.height / 2;
         for (const m of meteors) {
-          const mx = m.x + m.width / 2;
-          const my = m.y + m.height / 2;
-          if (Math.hypot(mx - cx, my - cy) < (m.width / 2 + Math.min(body.width, body.height) / 2) - 5) {
+          if (Math.hypot(m.x + m.width / 2 - cx, m.y + m.height / 2 - cy) < (m.width / 2 + Math.min(body.width, body.height) / 2) - 5) {
             hit = true; break;
           }
         }
@@ -2954,23 +3194,18 @@
           }
         }
       }
-
-      if (hit) {
-        player.lives = Math.max(0, (player.lives || 0) - 1);
-        player.hitCooldown = 90;
-        if (player.lives <= 0) {
-          player.lives = 0;
-          player.isDead = true;
-          player.deadRotation = -Math.PI / 2;
-        }
-      }
+      if (hit) applyDamageToRemotePlayer(player);
+      if (hit) player.hitCooldown = 90;
     }
 
     function broadcastToClients(msg, excludePeerId = null) {
       clientConnections.forEach(client => {
-        if (client.id !== excludePeerId && client.conn.open) {
+        if (client.id === excludePeerId || !client.conn.open) return;
+        try {
+          const dc = client.conn.dataChannel;
+          if (dc && Number.isFinite(dc.bufferedAmount) && dc.bufferedAmount > 900000) return;
           client.conn.send(msg);
-        }
+        } catch (e) {}
       });
     }
 
@@ -3002,6 +3237,9 @@
 
       myNickname = document.getElementById('inputPlayerName').value.trim() || 'CLIENT_DINO';
       netMode = 'client';
+      pendingJumpInputs = 0;
+      lastInputSentAt = 0;
+      lastInputSignature = '';
       remotePlayers.clear();
 
       document.getElementById('joinStatusMessage').style.color = '#2980b9';
@@ -3052,6 +3290,10 @@
     }
 
     function handleClientIncomingData(data) {
+      if (data.type === 'ROOM_FULL') {
+        showJoinError(`⚠️ Sala cheia (${data.maxPlayers || MAX_MULTIPLAYER_PLAYERS} jogadores).`);
+        return;
+      }
       if (data.type === 'ROOM_WELCOME' || data.type === 'LOBBY_UPDATE') {
         roomSettings = data.roomSettings;
         if (data.colorIndex !== undefined) myPlayerIndex = data.colorIndex;
@@ -3064,6 +3306,7 @@
         document.getElementById('statusRoomInfo').innerText = `Sala: ${roomCode} (Online)`;
         startGameLoop();
       } else if (data.type === 'REMOTE_PLAYER_UPDATE') {
+        // Compatibilidade com versões antigas; o WORLD_SNAPSHOT é a fonte oficial.
         remotePlayers.set(data.player.id, data.player);
         if (data.player.id === myPeerId) {
           dino.x = data.player.x;
@@ -3097,34 +3340,34 @@
       startGameLoop();
     }
 
-    function syncLocalPlayerToNetwork() {
-      const statePacket = {
-        type: 'PLAYER_STATE',
-        name: myNickname,
-        x: dino.x,
-        y: dino.y,
-        width: dino.width,
-        height: dino.height,
-        isGrounded: dino.isGrounded,
-        isDucking: dino.isDucking,
-        isDead: isGameOver,
-        deadRotation: dino.deadRotation,
-        lives: dino.lives,
-        score: score,
-        colorIndex: myPlayerIndex,
-        isFlying: flightModeActive,
-        isOnBike: !!dino.isOnBike,
-        bikeTimer: dino.bikeTimer,
-        isWheelie: !!dino.isWheelie
-      };
+    function sendInputState(force = false) {
+      if (netMode !== 'client' || !hostConnection || !hostConnection.open) return;
+      const now = performance.now();
+      const signature = `${keys.left?'1':'0'}${keys.right?'1':'0'}${keys.down?'1':'0'}:${pendingJumpInputs}`;
+      if (!force && now - lastInputSentAt < 45 && signature === lastInputSignature) return;
 
-      if (netMode === 'client' && hostConnection && hostConnection.open) {
-        hostConnection.send(statePacket);
-      } else if (netMode === 'host') {
-        broadcastToClients({
-          type: 'REMOTE_PLAYER_UPDATE',
-          player: { id: myPeerId, ...statePacket }
+      const jumps = pendingJumpInputs;
+      pendingJumpInputs = 0;
+      lastInputSentAt = now;
+      lastInputSignature = `${keys.left?'1':'0'}${keys.right?'1':'0'}${keys.down?'1':'0'}:0`;
+
+      try {
+        hostConnection.send({
+          type: 'PLAYER_INPUT',
+          left: keys.left,
+          right: keys.right,
+          down: keys.down,
+          jumps
         });
+      } catch (e) {}
+    }
+
+    function localPlayerJumpAction() {
+      if (netMode === 'client') {
+        pendingJumpInputs = Math.min(3, pendingJumpInputs + 1);
+        sendInputState(true);
+      } else {
+        dino.jump();
       }
     }
 
@@ -3296,14 +3539,14 @@
       btn.addEventListener('mouseleave', handleRelease);
     }
 
-    setupTouchButton('btnTouchLeft', () => { keys.left = true; }, () => { keys.left = false; });
-    setupTouchButton('btnTouchRight', () => { keys.right = true; }, () => { keys.right = false; });
-    setupTouchButton('btnTouchDown', () => { keys.down = true; }, () => { keys.down = false; });
-    setupTouchButton('btnTouchJump', () => { dino.jump(); }, null);
+    setupTouchButton('btnTouchLeft', () => { keys.left = true; sendInputState(true); }, () => { keys.left = false; sendInputState(true); });
+    setupTouchButton('btnTouchRight', () => { keys.right = true; sendInputState(true); }, () => { keys.right = false; sendInputState(true); });
+    setupTouchButton('btnTouchDown', () => { keys.down = true; sendInputState(true); }, () => { keys.down = false; sendInputState(true); });
+    setupTouchButton('btnTouchJump', () => { localPlayerJumpAction(); }, null);
 
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
-      dino.jump();
+      localPlayerJumpAction();
     }, { passive: false });
 
     // Teclado (PC)
@@ -3311,16 +3554,18 @@
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
         e.preventDefault();
       }
-      if (e.code === 'ArrowUp' || e.code === 'Space') dino.jump();
+      if (e.code === 'ArrowUp' || e.code === 'Space') localPlayerJumpAction();
       if (e.code === 'ArrowDown') keys.down = true;
       if (e.code === 'ArrowLeft') keys.left = true;
       if (e.code === 'ArrowRight') keys.right = true;
+      if (netMode === 'client') sendInputState(true);
     });
 
     window.addEventListener('keyup', (e) => {
       if (e.code === 'ArrowDown') keys.down = false;
       if (e.code === 'ArrowLeft') keys.left = false;
       if (e.code === 'ArrowRight') keys.right = false;
+      if (netMode === 'client') sendInputState(true);
     });
   </script>
 </body>
