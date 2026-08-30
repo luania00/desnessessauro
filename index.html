@@ -1010,6 +1010,8 @@
       },
 
       takeDamage() {
+        // A mobilete deixa o jogador totalmente invencível enquanto o power-up estiver ativo.
+        if (this.isOnBike && this.bikeTimer > 0) return;
         if (this.invulnerableTimer > 0 || isGameOver) return;
         this.lives--;
 
@@ -1191,18 +1193,6 @@
           ? (isGameOver ? '#d63031' : PLAYER_COLORS[myPlayerIndex % PLAYER_COLORS.length].hex)
           : (isGameOver ? '#d63031' : '#535353');
 
-        // Veículo fica atrás do Dino, e o Dino continua visível (inclusive quando coleta a bike).
-        if (this.isOnBike && roomSettings.enableBikePowerUp && !isGameOver) {
-          ctx.save();
-          ctx.translate(rx + this.width / 2, ry + this.height);
-          ctx.rotate(this.wheelieAngle);
-          ctx.translate(-(rx + this.width / 2), -(ry + this.height));
-          if (assets.bike.complete && assets.bike.naturalWidth !== 0) {
-            ctx.drawImage(assets.bike, rx - 18, ry + this.height - 46, 78, 52);
-          }
-          ctx.restore();
-        }
-
         if (flightModeActive && !isGameOver) {
           // O pombo substitui o paraquedas e acompanha SOMENTE este jogador.
           // Ele é desenhado antes do Dino para não escondê-lo.
@@ -1260,17 +1250,6 @@
         ctx.textAlign = 'center';
         const heartsIcon = player.isDead ? '💀 MORTO' : '❤️'.repeat(Math.max(0, player.lives || 1));
         ctx.fillText(`${player.name} [${heartsIcon}]`, rx + pWidth / 2, ry - 6);
-
-        if (player.isOnBike && roomSettings.enableBikePowerUp && !player.isFlying && !player.isDead) {
-          ctx.save();
-          ctx.translate(rx + pWidth / 2, ry + pHeight);
-          ctx.rotate(player.isWheelie ? -0.32 : 0);
-          ctx.translate(-(rx + pWidth / 2), -(ry + pHeight));
-          if (assets.bike.complete && assets.bike.naturalWidth !== 0) {
-            ctx.drawImage(assets.bike, rx - 18, ry + pHeight - 46, 78, 52);
-          }
-          ctx.restore();
-        }
 
         if (player.isFlying && !player.isDead && assets.pigeon.complete && assets.pigeon.naturalWidth !== 0) {
           const pigeonW = 92;
@@ -1604,6 +1583,41 @@
           ctx.drawImage(assets.bike, Math.round(p.x), Math.round(drawY), p.width, p.height);
         }
       }
+    }
+
+    function drawRiddenBikesOnly() {
+      if (!roomSettings.enableBikePowerUp) return;
+
+      // Mobilete local: fica abaixo do Dino, mas acima de toda a paisagem.
+      if (dino.isOnBike && dino.bikeTimer > 0 && !isGameOver && !flightModeActive) {
+        const rx = Math.round(dino.x);
+        const ry = Math.round(dino.y);
+        if (assets.bike.complete && assets.bike.naturalWidth !== 0) {
+          ctx.save();
+          ctx.translate(rx + dino.width / 2, ry + dino.height);
+          ctx.rotate(dino.wheelieAngle || 0);
+          ctx.translate(-(rx + dino.width / 2), -(ry + dino.height));
+          ctx.drawImage(assets.bike, rx - 18, ry + dino.height - 46, 78, 52);
+          ctx.restore();
+        }
+      }
+
+      // Mobiletes remotas: mesmas regras de camada para todos os jogadores.
+      remotePlayers.forEach(player => {
+        if (player.isDead || !player.isOnBike || player.bikeTimer <= 0 || player.isFlying) return;
+        const rx = Math.round(player.x || 80);
+        const ry = Math.round(player.y || groundY - 48);
+        const pWidth = player.width || 44;
+        const pHeight = player.height || 48;
+        if (assets.bike.complete && assets.bike.naturalWidth !== 0) {
+          ctx.save();
+          ctx.translate(rx + pWidth / 2, ry + pHeight);
+          ctx.rotate(player.wheelieAngle || 0);
+          ctx.translate(-(rx + pWidth / 2), -(ry + pHeight));
+          ctx.drawImage(assets.bike, rx - 18, ry + pHeight - 46, 78, 52);
+          ctx.restore();
+        }
+      });
     }
 
     function drawBikePowerUpsOnly() {
@@ -2549,6 +2563,9 @@
       updateAndDrawGround(advanceWorldVisuals);
       updateAndDrawPlatforms();
 
+      // CAMADA DO VEÍCULO: sempre desenhada depois das montanhas/chão e antes dos jogadores.
+      // Isso garante que a mobilete nunca fique escondida atrás da montanha.
+      drawRiddenBikesOnly();
       if (netMode === 'client') drawBikePowerUpsOnly();
       drawObstaclesOnly();
       drawMeteorsOnly();
@@ -3137,6 +3154,8 @@
 
     function applyDamageToRemotePlayer(player) {
       if (!player || player.isDead || player.invulnerableTimer > 0) return;
+      // Mobilete = invencibilidade completa contra qualquer perigo.
+      if (player.isOnBike && player.bikeTimer > 0) return;
       player.lives = Math.max(0, Number(player.lives || 0) - 1);
       player.invulnerableTimer = 90;
       player.scaredTimer = 40;
@@ -3151,6 +3170,8 @@
 
     function hostValidateRemotePlayer(player) {
       if (netMode !== 'host' || !player || player.isDead || player.hitCooldown > 0) return;
+      // Não deixa nenhum tipo de dano atingir um jogador de mobilete.
+      if (player.isOnBike && player.bikeTimer > 0) return;
       const body = { x: player.x, y: player.y, width: player.width || 44, height: player.height || 48 };
       let hit = false;
 
