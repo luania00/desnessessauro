@@ -1376,6 +1376,29 @@
       spawnCooldown: 0
     };
 
+    // Trilha do evento Benício. O arquivo deve ficar ao lado deste HTML.
+    const benicioMusic = new Audio('megalovania.mp3');
+    benicioMusic.preload = 'auto';
+    benicioMusic.volume = 0.78;
+
+    function playBenicioMusic() {
+      try {
+        benicioMusic.pause();
+        benicioMusic.currentTime = 0;
+        const promise = benicioMusic.play();
+        if (promise && typeof promise.catch === 'function') promise.catch(() => {});
+      } catch (e) {
+        // Alguns navegadores bloqueiam áudio até haver interação do usuário.
+      }
+    }
+
+    function stopBenicioMusic() {
+      try {
+        benicioMusic.pause();
+        benicioMusic.currentTime = 0;
+      } catch (e) {}
+    }
+
     function spawnBenicio() {
       const size = Math.floor(syncRandom() * 13) + 38;
       const height = Math.round(size * 558 / 550);
@@ -1401,12 +1424,14 @@
       benicioRainEvent.state = 'warning';
       benicioRainEvent.timer = 0;
       benicioRainEvent.spawnCooldown = 0;
+      playBenicioMusic();
     }
 
     function updateBenicioRain() {
       if (!roomSettings.enableBenicioRain) {
         benicios = [];
         benicioRainEvent.state = 'idle';
+        stopBenicioMusic();
         benicioRainEvent.timer = 0;
         benicioRainEvent.spawnCooldown = 0;
         return;
@@ -1414,6 +1439,7 @@
 
       if (boss.active) {
         benicioRainEvent.state = 'idle';
+        stopBenicioMusic();
         benicioRainEvent.timer = 0;
         benicioRainEvent.spawnCooldown = 0;
         benicios = [];
@@ -1442,6 +1468,7 @@
 
         if (benicioRainEvent.timer >= benicioRainEvent.duration) {
           benicioRainEvent.state = 'idle';
+          stopBenicioMusic();
           benicioRainEvent.timer = 0;
           benicioRainEvent.nextRainDist = score + Math.floor(syncRandom() * 300) + 520;
         }
@@ -2107,6 +2134,7 @@
       meteorEvent.nextShowerDist = 220;
 
       benicioRainEvent.state = 'idle';
+      stopBenicioMusic();
       benicioRainEvent.nextRainDist = 760;
       benicioRainEvent.duration = 125;
       benicioRainEvent.timer = 0;
