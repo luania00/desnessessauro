@@ -421,6 +421,8 @@
           <label class="modifier-item"><input type="checkbox" id="modWaterBiome" checked> 🌊 Bioma Água</label>
           <label class="modifier-item"><input type="checkbox" id="modBoss" checked> 👾 Boss</label>
           <label class="modifier-item"><input type="checkbox" id="modDoubleJump" checked> 🦘 Pulo Duplo</label>
+          <label class="modifier-item"><input type="checkbox" id="modEarthquake" checked> 🌋 Terremoto / Buracos</label>
+          <label class="modifier-item"><input type="checkbox" id="modDinoColors" checked> 🎨 Cores dos Dinos</label>
         </div>
 
         <div style="display:flex; gap: 8px;">
@@ -606,6 +608,8 @@
       enableWaterBiome: true,
       enableBoss: true,
       enableDoubleJump: true,
+      enableEarthquake: true,
+      enableDinoColors: true,
       initialLives: 3,
       initialSpeed: 5.5
     };
@@ -1101,11 +1105,16 @@
         ctx.textAlign = 'center';
         ctx.fillText(`★ VOCÊ (${myNickname})`, rx + this.width / 2, ry - 6);
 
-        const localColor = isGameOver
-          ? '#d63031'
-          : PLAYER_COLORS[myPlayerIndex % PLAYER_COLORS.length].hex;
+        const localColor = roomSettings.enableDinoColors
+          ? (isGameOver ? '#d63031' : PLAYER_COLORS[myPlayerIndex % PLAYER_COLORS.length].hex)
+          : (isGameOver ? '#d63031' : '#535353');
 
-        if (!drawTintedSprite(currentSprite, rx, ry, this.width, this.height, localColor, isGameOver ? 0.55 : 0.72)) {
+        if (roomSettings.enableDinoColors) {
+          if (!drawTintedSprite(currentSprite, rx, ry, this.width, this.height, localColor, isGameOver ? 0.55 : 0.72)) {
+            ctx.fillStyle = localColor;
+            ctx.fillRect(rx, ry, this.width, this.height);
+          }
+        } else if (!drawTintedSprite(currentSprite, rx, ry, this.width, this.height, localColor, isGameOver ? 0.55 : 0.0)) {
           ctx.fillStyle = localColor;
           ctx.fillRect(rx, ry, this.width, this.height);
         }
@@ -1122,7 +1131,9 @@
         const ry = Math.round(player.y || groundY - 48);
         const pWidth = player.width || 44;
         const pHeight = player.height || 48;
-        const pColor = PLAYER_COLORS[(player.colorIndex || 1) % PLAYER_COLORS.length];
+        const pColor = roomSettings.enableDinoColors
+          ? PLAYER_COLORS[(player.colorIndex || 1) % PLAYER_COLORS.length]
+          : PLAYER_COLORS[0];
 
         ctx.save();
         if (player.isDead) {
@@ -1145,16 +1156,23 @@
         else if (!player.isGrounded) spriteToDraw = assets.jump;
         else if (player.isDucking) spriteToDraw = assets.duck1;
 
-        if (!drawTintedSprite(
-          spriteToDraw,
-          rx,
-          ry,
-          pWidth,
-          pHeight,
-          pColor.hex,
-          player.isDead ? 0.35 : 0.72
+        if (roomSettings.enableDinoColors) {
+          if (!drawTintedSprite(
+            spriteToDraw,
+            rx,
+            ry,
+            pWidth,
+            pHeight,
+            pColor.hex,
+            player.isDead ? 0.35 : 0.72
+          )) {
+            ctx.fillStyle = pColor.hex;
+            ctx.fillRect(rx, ry, pWidth, pHeight);
+          }
+        } else if (!drawTintedSprite(
+          spriteToDraw, rx, ry, pWidth, pHeight, '#535353', player.isDead ? 0.35 : 0.0
         )) {
-          ctx.fillStyle = pColor.hex;
+          ctx.fillStyle = '#535353';
           ctx.fillRect(rx, ry, pWidth, pHeight);
         }
         ctx.restore();
@@ -1377,6 +1395,13 @@
     }
 
     function updateEarthquake() {
+      if (!roomSettings.enableEarthquake) {
+        groundHoles = [];
+        earthquakeEvent.state = 'idle';
+        earthquakeEvent.shake = 0;
+        return;
+      }
+
       if (boss.active) {
         earthquakeEvent.state = 'idle';
         earthquakeEvent.shake = 0;
@@ -1412,6 +1437,7 @@
     }
 
     function drawEarthquake() {
+      if (!roomSettings.enableEarthquake) return;
       if (earthquakeEvent.state === 'warning') {
         if (Math.floor(animFrameCounter / 5) % 2 === 0) {
           ctx.fillStyle = '#8e44ad';
@@ -1437,7 +1463,7 @@
     }
 
     function isGroundHoleAt(x) {
-      if (earthquakeEvent.state !== 'active') return false;
+      if (!roomSettings.enableEarthquake || earthquakeEvent.state !== 'active') return false;
       return groundHoles.some(h => x >= h.x && x <= h.x + h.width);
     }
 
@@ -2518,6 +2544,8 @@
         enableWaterBiome: document.getElementById('modWaterBiome').checked,
         enableBoss: document.getElementById('modBoss').checked,
         enableDoubleJump: document.getElementById('modDoubleJump').checked,
+        enableEarthquake: document.getElementById('modEarthquake').checked,
+        enableDinoColors: document.getElementById('modDinoColors').checked,
         initialLives: parseInt(document.getElementById('modLives').value),
         initialSpeed: parseFloat(document.getElementById('modSpeed').value)
       };
@@ -2558,6 +2586,8 @@
       if (roomSettings.enableWaterBiome) sum.push('🌊 Água');
       if (roomSettings.enableBoss) sum.push('👾 Boss');
       if (roomSettings.enableDoubleJump) sum.push('🦘 Pulo 2x');
+      if (roomSettings.enableEarthquake) sum.push('🌋 Terremoto');
+      if (roomSettings.enableDinoColors) sum.push('🎨 Cores');
 
       document.getElementById('lobbyFeaturesSummary').innerHTML = `
         <b>Ativos:</b> ${sum.join(', ') || 'Nenhum'} | 
