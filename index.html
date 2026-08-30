@@ -424,6 +424,7 @@
           <label class="modifier-item"><input type="checkbox" id="modEarthquake" checked> 🌋 Terremoto / Buracos</label>
           <label class="modifier-item"><input type="checkbox" id="modDinoColors" checked> 🎨 Cores dos Dinos</label>
           <label class="modifier-item"><input type="checkbox" id="modBenicioRain" checked> 👨‍🦳 Chuva de Benício</label>
+          <label class="modifier-item"><input type="checkbox" id="modFlight2000" checked> 🪂 Voo no 2000</label>
         </div>
 
         <div style="display:flex; gap: 8px;">
@@ -433,6 +434,8 @@
               <option value="1">1 Vida</option>
               <option value="3" selected>3 Vidas</option>
               <option value="5">5 Vidas</option>
+              <option value="10">10 Vidas</option>
+              <option value="15">15 Vidas</option>
             </select>
           </div>
           <div class="input-group" style="flex:1;">
@@ -614,6 +617,7 @@
       enableEarthquake: true,
       enableDinoColors: true,
       enableBenicioRain: true,
+      enableFlight2000: true,
       initialLives: 3,
       initialSpeed: 5.5
     };
@@ -944,6 +948,7 @@
       jumpsRemaining: 2,
       isGrounded: true,
       isDucking: false,
+      isFlying: false,
       lives: 3,
       invulnerableTimer: 0,
       scaredTimer: 0,
@@ -952,6 +957,13 @@
 
       jump() {
         if (isGameOver) return;
+        if (flightModeActive) {
+          // Mecânica estilo Flappy: cada toque dá um impulso para cima.
+          this.vy = -8.0;
+          this.isGrounded = false;
+          this.isDucking = false;
+          return;
+        }
         const maxJumps = roomSettings.enableDoubleJump ? 2 : 1;
         if (this.jumpsRemaining > 0) {
           this.vy = this.jumpForce;
@@ -1002,6 +1014,29 @@
         if (this.invulnerableTimer > 0) this.invulnerableTimer--;
         if (this.scaredTimer > 0) this.scaredTimer--;
 
+        if (flightModeActive) {
+          this.isFlying = true;
+          this.isDucking = false;
+          this.width = this.normalWidth;
+          this.height = this.normalHeight;
+          if (keys.left) this.x -= this.speed * 0.9;
+          if (keys.right) this.x += this.speed * 0.9;
+          this.vy += 0.42;
+          this.vy = Math.max(-10, Math.min(10, this.vy));
+          this.y += this.vy;
+          const minY = 18;
+          const maxY = groundY - this.height - 12;
+          if (this.y < minY) { this.y = minY; this.vy = 0; }
+          if (this.y > maxY) { this.y = maxY; this.vy = 0; }
+          if (this.x < 10) this.x = 10;
+          if (this.x + this.width > canvas.width - 20) {
+            this.x = canvas.width - 20 - this.width;
+          }
+          this.isGrounded = false;
+          return;
+        }
+
+        this.isFlying = false;
         if (keys.left) this.x -= this.speed;
         if (keys.right) this.x += this.speed;
 
@@ -1119,6 +1154,28 @@
         } else if (!drawTintedSprite(currentSprite, rx, ry, this.width, this.height, localColor, isGameOver ? 0.55 : 0.0)) {
           ctx.fillStyle = localColor;
           ctx.fillRect(rx, ry, this.width, this.height);
+        }
+
+        if (flightModeActive && !isGameOver) {
+          // Paraquedas simples desenhado em canvas, sem precisar de outro asset.
+          const cx = rx + this.width / 2;
+          const topY = ry - 26;
+          ctx.strokeStyle = '#555';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(cx - 12, topY + 9); ctx.lineTo(rx + 9, ry + 2);
+          ctx.moveTo(cx + 12, topY + 9); ctx.lineTo(rx + this.width - 9, ry + 2);
+          ctx.stroke();
+          ctx.fillStyle = '#ecf0f1';
+          ctx.strokeStyle = '#34495e';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(cx, topY + 8, 15, Math.PI, 0);
+          ctx.lineTo(cx + 11, topY + 10);
+          ctx.lineTo(cx - 11, topY + 10);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
         }
         ctx.restore();
       }
@@ -1357,6 +1414,30 @@
 
     // --- Meteoros Sincronizados ---
     let meteors = [];
+    // --- Voo no 2000 (mecânica estilo Flappy) ---
+    const FLIGHT_START_SCORE = 2000;
+    let flightModeActive = false;
+
+    function isFlightModeActive() {
+      return roomSettings.enableFlight2000 && score >= FLIGHT_START_SCORE;
+    }
+
+    function updateFlightMode() {
+      const wasFlying = flightModeActive;
+      flightModeActive = isFlightModeActive();
+      dino.isFlying = flightModeActive;
+      if (flightModeActive && !wasFlying) {
+        dino.vy = -2.5;
+        dino.isGrounded = false;
+        dino.isDucking = false;
+        dino.jumpsRemaining = 0;
+      }
+      if (!flightModeActive && wasFlying) {
+        dino.isFlying = false;
+        dino.isGrounded = true;
+      }
+    }
+
     const meteorEvent = {
       state: 'idle',
       nextShowerDist: 220,
@@ -1380,6 +1461,7 @@
     const benicioMusic = new Audio('megalovania.mp3');
     benicioMusic.preload = 'auto';
     benicioMusic.volume = 0.78;
+    let lastBenicioNetworkState = 'idle';
 
     function playBenicioMusic() {
       try {
@@ -1397,6 +1479,17 @@
         benicioMusic.pause();
         benicioMusic.currentTime = 0;
       } catch (e) {}
+    }
+
+    function syncBenicioMusicFromNetwork(nextState) {
+      if (nextState === 'warning' || nextState === 'active') {
+        if (lastBenicioNetworkState !== 'warning' && lastBenicioNetworkState !== 'active') {
+          playBenicioMusic();
+        }
+      } else if (nextState === 'idle') {
+        if (lastBenicioNetworkState !== 'idle') stopBenicioMusic();
+      }
+      lastBenicioNetworkState = nextState || 'idle';
     }
 
     function spawnBenicio() {
@@ -1428,6 +1521,8 @@
     }
 
     function updateBenicioRain() {
+      const flightRain = flightModeActive && roomSettings.enableBenicioRain;
+
       if (!roomSettings.enableBenicioRain) {
         benicios = [];
         benicioRainEvent.state = 'idle';
@@ -1437,7 +1532,7 @@
         return;
       }
 
-      if (boss.active) {
+      if (boss.active && !flightRain) {
         benicioRainEvent.state = 'idle';
         stopBenicioMusic();
         benicioRainEvent.timer = 0;
@@ -1446,7 +1541,20 @@
         return;
       }
 
-      if (benicioRainEvent.state === 'idle') {
+      if (flightRain) {
+        if (benicioRainEvent.state !== 'active') {
+          startBenicioRain();
+          benicioRainEvent.timer = 0;
+        }
+        benicioRainEvent.state = 'active';
+        benicioRainEvent.spawnCooldown++;
+        benicioRainEvent.duration = Number.POSITIVE_INFINITY;
+        if (benicioRainEvent.spawnCooldown > 7) {
+          spawnBenicio();
+          if (syncRandom() < 0.42) spawnBenicio();
+          benicioRainEvent.spawnCooldown = 0;
+        }
+      } else if (benicioRainEvent.state === 'idle') {
         if (score >= benicioRainEvent.nextRainDist) {
           startBenicioRain();
         }
@@ -1515,6 +1623,10 @@
           ctx.textAlign = 'center';
           ctx.fillText('☠️ CHUVA DE BENÍCIO — BENÍCIO OU MORTE! ☠️', canvas.width / 2, 46);
         }
+      }
+
+      if (netMode === 'host' || netMode === 'solo') {
+        lastBenicioNetworkState = benicioRainEvent.state;
       }
     }
 
@@ -1932,6 +2044,12 @@
 
     // --- HUD ---
     function drawHUD() {
+      if (flightModeActive) {
+        ctx.fillStyle = '#34495e';
+        ctx.font = 'bold 11px "Courier New", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('🪂 VOO FLAPPY • DESVIE DOS BENÍCIOS!', 12, 18);
+      }
       const heartSize = 18;
       for (let i = 0; i < dino.lives; i++) {
         const hx = 14 + i * (heartSize + 4);
@@ -2102,6 +2220,7 @@
       allDeadCheckCooldown = 0;
       matchResultsShown = false;
       latestWorldSnapshot = null;
+      flightModeActive = false;
 
       biomeSystem.current = 'desert';
       biomeSystem.targetBiome = 'desert';
@@ -2126,6 +2245,7 @@
       dino.vy = 0;
       dino.isGrounded = true;
       dino.isDucking = false;
+      dino.isFlying = false;
       dino.deadRotation = 0;
       dino.deadRotSpeed = 0;
       dino.jumpsRemaining = roomSettings.enableDoubleJump ? 2 : 1;
@@ -2135,10 +2255,12 @@
 
       benicioRainEvent.state = 'idle';
       stopBenicioMusic();
+      lastBenicioNetworkState = 'idle';
       benicioRainEvent.nextRainDist = 760;
       benicioRainEvent.duration = 125;
       benicioRainEvent.timer = 0;
       benicioRainEvent.spawnCooldown = 0;
+      benicioRainEvent.duration = 125;
       groundHoles = [];
       earthquakeEvent.state = 'idle';
       earthquakeEvent.nextEarthquakeDist = 520;
@@ -2179,12 +2301,14 @@
       // O Host (ou Solo) é o dono do mundo. Clientes apenas aplicam o snapshot.
       if (netMode === 'client') {
         applyWorldSnapshot();
+        updateFlightMode();
       } else {
         if (!isGameOver) {
           score += 0.15;
           gameSpeed += 0.00035;
         }
 
+        updateFlightMode();
         biomeSystem.update();
         updateEarthquake();
         updateBenicioRain();
@@ -2331,6 +2455,7 @@
         meteors: serializeArray(meteors, ['x', 'y', 'width', 'height', 'vx', 'vy', 'angle', 'rotSpeed']),
         benicios: serializeArray(benicios, ['x', 'y', 'width', 'height', 'vx', 'vy', 'gravity', 'angle', 'rotSpeed', 'stuck', 'bob']),
         benicioRainEvent: { ...benicioRainEvent },
+        flightModeActive,
         groundHoles: serializeArray(groundHoles, ['x', 'width']),
         earthquake: {
           state: earthquakeEvent.state,
@@ -2374,6 +2499,11 @@
       benicios = (latestWorldSnapshot.benicios || []).map(b => ({ ...b }));
       if (latestWorldSnapshot.benicioRainEvent) {
         Object.assign(benicioRainEvent, latestWorldSnapshot.benicioRainEvent);
+        syncBenicioMusicFromNetwork(benicioRainEvent.state);
+      }
+      if (typeof latestWorldSnapshot.flightModeActive === 'boolean') {
+        flightModeActive = latestWorldSnapshot.flightModeActive;
+        dino.isFlying = flightModeActive;
       }
       groundHoles = (latestWorldSnapshot.groundHoles || []).map(h => ({ ...h }));
 
@@ -2547,7 +2677,8 @@
           deadRotation: data.deadRotation,
           lives: data.lives,
           score: data.score,
-          colorIndex: data.colorIndex
+          colorIndex: data.colorIndex,
+          isFlying: !!data.isFlying
         });
 
         broadcastToClients({
@@ -2687,7 +2818,8 @@
         deadRotation: dino.deadRotation,
         lives: dino.lives,
         score: score,
-        colorIndex: myPlayerIndex
+        colorIndex: myPlayerIndex,
+        isFlying: flightModeActive
       };
 
       if (netMode === 'client' && hostConnection && hostConnection.open) {
@@ -2741,6 +2873,7 @@
         enableEarthquake: document.getElementById('modEarthquake').checked,
         enableDinoColors: document.getElementById('modDinoColors').checked,
         enableBenicioRain: document.getElementById('modBenicioRain').checked,
+        enableFlight2000: document.getElementById('modFlight2000').checked,
         initialLives: parseInt(document.getElementById('modLives').value),
         initialSpeed: parseFloat(document.getElementById('modSpeed').value)
       };
@@ -2784,6 +2917,7 @@
       if (roomSettings.enableEarthquake) sum.push('🌋 Terremoto');
       if (roomSettings.enableDinoColors) sum.push('🎨 Cores');
       if (roomSettings.enableBenicioRain) sum.push('👨‍🦳 Benício');
+      if (roomSettings.enableFlight2000) sum.push('🪂 Voo 2000');
 
       document.getElementById('lobbyFeaturesSummary').innerHTML = `
         <b>Ativos:</b> ${sum.join(', ') || 'Nenhum'} | 
