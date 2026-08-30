@@ -915,18 +915,35 @@
       ctx.fillRect(x - 5, groundY - 4, 10, 2);
     }
 
-    // Coloreia o sprite sem precisar de imagens diferentes para cada jogador.
+    // Colore SOMENTE os pixels do sprite, sem tingir o fundo/cenário.
+    const tintCanvas = document.createElement('canvas');
+    const tintCtx = tintCanvas.getContext('2d');
+    tintCtx.imageSmoothingEnabled = false;
+
     function drawTintedSprite(sprite, x, y, width, height, hex, alpha = 0.78) {
       if (!sprite || !sprite.complete || sprite.naturalWidth === 0) return false;
+      const w = Math.max(1, Math.ceil(width));
+      const h = Math.max(1, Math.ceil(height));
+      if (tintCanvas.width !== w || tintCanvas.height !== h) {
+        tintCanvas.width = w;
+        tintCanvas.height = h;
+        tintCtx.imageSmoothingEnabled = false;
+      } else {
+        tintCtx.clearRect(0, 0, w, h);
+      }
 
-      ctx.drawImage(sprite, x, y, width, height);
+      tintCtx.clearRect(0, 0, w, h);
+      tintCtx.globalCompositeOperation = 'source-over';
+      tintCtx.globalAlpha = 1;
+      tintCtx.drawImage(sprite, 0, 0, w, h);
+      tintCtx.globalCompositeOperation = 'source-in';
+      tintCtx.globalAlpha = alpha;
+      tintCtx.fillStyle = hex;
+      tintCtx.fillRect(0, 0, w, h);
+      tintCtx.globalCompositeOperation = 'source-over';
+      tintCtx.globalAlpha = 1;
 
-      ctx.save();
-      ctx.globalCompositeOperation = 'source-atop';
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = hex;
-      ctx.fillRect(x, y, width, height);
-      ctx.restore();
+      ctx.drawImage(tintCanvas, Math.round(x), Math.round(y));
       return true;
     }
 
@@ -2309,6 +2326,7 @@
         }
 
         updateFlightMode();
+        remotePlayers.forEach(p => { if (p.hitCooldown > 0) p.hitCooldown--; });
         biomeSystem.update();
         updateEarthquake();
         updateBenicioRain();
@@ -2337,12 +2355,9 @@
 
       dino.update();
 
-      if (netMode === 'client') {
-        checkLocalObstacleCollisions();
-        checkLocalMeteorCollisions();
-        checkLocalBossCollisions();
+      if (netMode !== 'client') {
+        checkBenicioCollisions();
       }
-      checkBenicioCollisions();
 
       drawRemotePlayers();
       dino.draw();
@@ -2355,7 +2370,7 @@
       biomeSystem.drawBanner();
       checkAllPlayersDead();
 
-      if (netMode !== 'solo' && animFrameCounter % 2 === 0) {
+      if (netMode !== 'solo') {
         syncLocalPlayerToNetwork();
       }
 
@@ -2433,7 +2448,7 @@
 
     function publishWorldSnapshot() {
       if (netMode !== 'host') return;
-      if (animFrameCounter % 3 !== 0) return;
+      if (animFrameCounter % 2 !== 0) return;
 
       const snapshot = {
         type: 'WORLD_SNAPSHOT',
@@ -2475,7 +2490,20 @@
           patternIndex: boss.patternIndex,
           laser: { ...boss.laser },
           projectiles: boss.projectiles.map(p => ({ ...p }))
-        }
+        },
+        players: [
+          {
+            id: myPeerId,
+            name: myNickname,
+            x: dino.x, y: dino.y,
+            width: dino.width, height: dino.height,
+            isGrounded: dino.isGrounded, isDucking: dino.isDucking,
+            isDead: isGameOver, deadRotation: dino.deadRotation,
+            lives: dino.lives, score: score, colorIndex: myPlayerIndex,
+            isFlying: !!flightModeActive
+          },
+          ...Array.from(remotePlayers.values()).map(p => ({ ...p }))
+        ]
       };
 
       broadcastToClients(snapshot);
@@ -2516,6 +2544,26 @@
         Object.assign(boss, incomingBoss);
         boss.laser = { ...incomingBoss.laser };
         boss.projectiles = (incomingBoss.projectiles || []).map(p => ({ ...p }));
+      }
+
+      // Os jogadores também fazem parte do snapshot: todos os clientes
+      // enxergam exatamente a mesma posição/estado de cada Dino.
+      if (Array.isArray(latestWorldSnapshot.players)) {
+        latestWorldSnapshot.players.forEach(player => {
+          remotePlayers.set(player.id, { ...player });
+          if (netMode === 'client' && player.id === myPeerId) {
+            dino.x = player.x;
+            dino.y = player.y;
+            dino.width = player.width || dino.normalWidth;
+            dino.height = player.height || dino.normalHeight;
+            dino.isGrounded = !!player.isGrounded;
+            dino.isDucking = !!player.isDucking;
+            dino.lives = Number.isFinite(player.lives) ? player.lives : dino.lives;
+            dino.deadRotation = player.deadRotation || 0;
+            dino.isFlying = !!player.isFlying;
+            isGameOver = !!player.isDead;
+          }
+        });
       }
 
       // Não deixar a sincronização do mundo alterar a cor do fundo.
@@ -2619,7 +2667,8 @@
               conn: conn,
               isDead: false,
               score: 0,
-              lives: roomSettings.initialLives
+              lives: roomSettings.initialLives,
+              hitCooldown: 0
             };
 
             clientConnections.push(clientInfo);
@@ -2664,27 +2713,89 @@
           updateLobbyUI();
         }
       } else if (data.type === 'PLAYER_STATE') {
-        remotePlayers.set(peerId, {
+        const previous = remotePlayers.get(peerId) || {};
+        const player = {
           id: peerId,
           name: data.name,
-          x: data.x,
-          y: data.y,
-          width: data.width,
-          height: data.height,
-          isGrounded: data.isGrounded,
-          isDucking: data.isDucking,
-          isDead: data.isDead,
-          deadRotation: data.deadRotation,
-          lives: data.lives,
-          score: data.score,
-          colorIndex: data.colorIndex,
-          isFlying: !!data.isFlying
-        });
+          x: Number.isFinite(data.x) ? data.x : (previous.x ?? 80),
+          y: Number.isFinite(data.y) ? data.y : (previous.y ?? groundY - 48),
+          width: Number.isFinite(data.width) ? data.width : (previous.width ?? 44),
+          height: Number.isFinite(data.height) ? data.height : (previous.height ?? 48),
+          isGrounded: !!data.isGrounded,
+          isDucking: !!data.isDucking,
+          // Vida/morte são mantidas pelo Host; o cliente não pode alterá-las.
+          isDead: !!previous.isDead,
+          deadRotation: previous.deadRotation || 0,
+          lives: Number.isFinite(previous.lives) ? previous.lives : (Number(roomSettings.initialLives) || 3),
+          score: score,
+          colorIndex: previous.colorIndex ?? data.colorIndex ?? 1,
+          isFlying: !!data.isFlying,
+          hitCooldown: Math.max(0, previous.hitCooldown || 0)
+        };
 
+        remotePlayers.set(peerId, player);
+        hostValidateRemotePlayer(player);
+
+        // O Host retransmite o estado para TODOS, inclusive para quem enviou.
+        // Assim todos desenham exatamente o mesmo estado do jogador.
         broadcastToClients({
           type: 'REMOTE_PLAYER_UPDATE',
-          player: remotePlayers.get(peerId)
-        }, peerId);
+          player: { ...remotePlayers.get(peerId) }
+        });
+      }
+    }
+
+    function hostValidateRemotePlayer(player) {
+      if (netMode !== 'host' || !player || player.isDead) return;
+      if (player.hitCooldown > 0) return;
+
+      const body = { x: player.x, y: player.y, width: player.width || 44, height: player.height || 48 };
+      let hit = false;
+
+      if (!flightModeActive && isGroundHoleAt(body.x + body.width / 2) && body.y + body.height >= groundY - 6) {
+        hit = true;
+      }
+      if (!hit) {
+        for (const obs of obstacles) {
+          if (rectsOverlap(body, obs, 6, 4)) { hit = true; break; }
+        }
+      }
+      if (!hit) {
+        const cx = body.x + body.width / 2;
+        const cy = body.y + body.height / 2;
+        for (const m of meteors) {
+          const mx = m.x + m.width / 2;
+          const my = m.y + m.height / 2;
+          if (Math.hypot(mx - cx, my - cy) < (m.width / 2 + Math.min(body.width, body.height) / 2) - 5) {
+            hit = true; break;
+          }
+        }
+      }
+      if (!hit) {
+        for (const b of benicios) {
+          if (rectsOverlap(body, b, 5, 4)) { hit = true; break; }
+        }
+      }
+      if (!hit && boss.active) {
+        if (boss.laser.active && body.y < boss.laser.y + boss.laser.height && body.y + body.height > boss.laser.y) hit = true;
+        if (!hit) {
+          const cx = body.x + body.width / 2;
+          const cy = body.y + body.height / 2;
+          for (const q of boss.projectiles) {
+            if (q.radius && Math.hypot(q.x - cx, q.y - cy) < q.radius + body.width / 3) { hit = true; break; }
+            if (q.width && rectsOverlap(body, q)) { hit = true; break; }
+          }
+        }
+      }
+
+      if (hit) {
+        player.lives = Math.max(0, (player.lives || 0) - 1);
+        player.hitCooldown = 90;
+        if (player.lives <= 0) {
+          player.lives = 0;
+          player.isDead = true;
+          player.deadRotation = -Math.PI / 2;
+        }
       }
     }
 
@@ -2787,6 +2898,18 @@
         startGameLoop();
       } else if (data.type === 'REMOTE_PLAYER_UPDATE') {
         remotePlayers.set(data.player.id, data.player);
+        if (data.player.id === myPeerId) {
+          dino.x = data.player.x;
+          dino.y = data.player.y;
+          dino.width = data.player.width || dino.normalWidth;
+          dino.height = data.player.height || dino.normalHeight;
+          dino.isGrounded = !!data.player.isGrounded;
+          dino.isDucking = !!data.player.isDucking;
+          dino.lives = Number.isFinite(data.player.lives) ? data.player.lives : dino.lives;
+          dino.deadRotation = data.player.deadRotation || 0;
+          dino.isFlying = !!data.player.isFlying;
+          isGameOver = !!data.player.isDead;
+        }
       } else if (data.type === 'WORLD_SNAPSHOT') {
         latestWorldSnapshot = data;
       } else if (data.type === 'MATCH_OVER') {
