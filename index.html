@@ -927,34 +927,65 @@
       ctx.fillRect(x - 5, groundY - 4, 10, 2);
     }
 
-    // Colore SOMENTE os pixels do sprite, sem tingir o fundo/cenário.
+    // Colore SOMENTE os tons de cinza do sprite. Pixels já coloridos
+    // (olhos, boca, detalhes etc.) continuam com a cor original.
     const tintCanvas = document.createElement('canvas');
-    const tintCtx = tintCanvas.getContext('2d');
+    const tintCtx = tintCanvas.getContext('2d', { willReadFrequently: true });
     tintCtx.imageSmoothingEnabled = false;
 
-    function drawTintedSprite(sprite, x, y, width, height, hex, alpha = 0.78) {
+    function hexToRgb(hex) {
+      const m = String(hex || '#535353').match(/^#?([0-9a-f]{6})$/i);
+      if (!m) return { r: 83, g: 83, b: 83 };
+      const n = parseInt(m[1], 16);
+      return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+    }
+
+    function drawTintedSprite(sprite, x, y, width, height, hex, strength = 1) {
       if (!sprite || !sprite.complete || sprite.naturalWidth === 0) return false;
+
       const w = Math.max(1, Math.ceil(width));
       const h = Math.max(1, Math.ceil(height));
       if (tintCanvas.width !== w || tintCanvas.height !== h) {
         tintCanvas.width = w;
         tintCanvas.height = h;
         tintCtx.imageSmoothingEnabled = false;
-      } else {
-        tintCtx.clearRect(0, 0, w, h);
       }
 
+      tintCtx.setTransform(1, 0, 0, 1, 0, 0);
+      tintCtx.globalAlpha = 1;
+      tintCtx.globalCompositeOperation = 'source-over';
       tintCtx.clearRect(0, 0, w, h);
-      tintCtx.globalCompositeOperation = 'source-over';
-      tintCtx.globalAlpha = 1;
       tintCtx.drawImage(sprite, 0, 0, w, h);
-      tintCtx.globalCompositeOperation = 'source-in';
-      tintCtx.globalAlpha = alpha;
-      tintCtx.fillStyle = hex;
-      tintCtx.fillRect(0, 0, w, h);
-      tintCtx.globalCompositeOperation = 'source-over';
-      tintCtx.globalAlpha = 1;
 
+      const img = tintCtx.getImageData(0, 0, w, h);
+      const data = img.data;
+      const target = hexToRgb(hex);
+      const s = Math.max(0, Math.min(1, Number(strength)));
+
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3];
+        if (a === 0) continue;
+
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const saturation = max - min;
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        // Somente cinzas médios são recoloridos. Preto/contorno e branco
+        // quase puro permanecem preservados, assim como pixels coloridos.
+        if (saturation <= 18 && luminance >= 22 && luminance <= 238) {
+          const shade = luminance / 255;
+          const tr = target.r * shade;
+          const tg = target.g * shade;
+          const tb = target.b * shade;
+          data[i]     = Math.round(r + (tr - r) * s);
+          data[i + 1] = Math.round(g + (tg - g) * s);
+          data[i + 2] = Math.round(b + (tb - b) * s);
+        }
+      }
+
+      tintCtx.putImageData(img, 0, 0);
       ctx.drawImage(tintCanvas, Math.round(x), Math.round(y));
       return true;
     }
@@ -1208,14 +1239,17 @@
           }
         }
 
+        const drawX = rx;
+        const drawY = ry - (this.isOnBike && !isGameOver ? 3 : 0);
         if (roomSettings.enableDinoColors) {
-          if (!drawTintedSprite(currentSprite, rx, ry - (this.isOnBike && !isGameOver ? 3 : 0), this.width, this.height, localColor, isGameOver ? 0.55 : 0.72)) {
-            ctx.fillStyle = localColor;
-            ctx.fillRect(rx, ry - (this.isOnBike && !isGameOver ? 3 : 0), this.width, this.height);
+          if (!drawTintedSprite(currentSprite, drawX, drawY, this.width, this.height, localColor, isGameOver ? 0.55 : 0.82)) {
+            if (currentSprite.complete && currentSprite.naturalWidth !== 0) {
+              ctx.drawImage(currentSprite, drawX, drawY, this.width, this.height);
+            }
           }
-        } else if (!drawTintedSprite(currentSprite, rx, ry - (this.isOnBike && !isGameOver ? 3 : 0), this.width, this.height, localColor, isGameOver ? 0.55 : 0.0)) {
-          ctx.fillStyle = localColor;
-          ctx.fillRect(rx, ry - (this.isOnBike && !isGameOver ? 3 : 0), this.width, this.height);
+        } else if (currentSprite.complete && currentSprite.naturalWidth !== 0) {
+          // Sem cores: usa o sprite original exatamente como foi criado.
+          ctx.drawImage(currentSprite, drawX, drawY, this.width, this.height);
         }
 
         ctx.restore();
@@ -1268,23 +1302,13 @@
         else if (player.isDucking) spriteToDraw = assets.duck1;
 
         if (roomSettings.enableDinoColors) {
-          if (!drawTintedSprite(
-            spriteToDraw,
-            rx,
-            ry,
-            pWidth,
-            pHeight,
-            pColor.hex,
-            player.isDead ? 0.35 : 0.72
-          )) {
-            ctx.fillStyle = pColor.hex;
-            ctx.fillRect(rx, ry, pWidth, pHeight);
+          if (!drawTintedSprite(spriteToDraw, rx, ry, pWidth, pHeight, pColor.hex, player.isDead ? 0.45 : 0.82)) {
+            if (spriteToDraw.complete && spriteToDraw.naturalWidth !== 0) {
+              ctx.drawImage(spriteToDraw, rx, ry, pWidth, pHeight);
+            }
           }
-        } else if (!drawTintedSprite(
-          spriteToDraw, rx, ry, pWidth, pHeight, '#535353', player.isDead ? 0.35 : 0.0
-        )) {
-          ctx.fillStyle = '#535353';
-          ctx.fillRect(rx, ry, pWidth, pHeight);
+        } else if (spriteToDraw.complete && spriteToDraw.naturalWidth !== 0) {
+          ctx.drawImage(spriteToDraw, rx, ry, pWidth, pHeight);
         }
         ctx.restore();
       });
@@ -2517,6 +2541,13 @@
     function loop(token) {
       if (!isGameRunning || token !== loopEpoch) return;
 
+      // Nunca deixe estado de canvas de um sprite/efeito vazar para o mundo.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.filter = 'none';
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = 'transparent';
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       animFrameCounter++;
@@ -2579,6 +2610,14 @@
 
       ctx.restore();
 
+      // Garantia extra: o HUD começa sempre com o estado normal do canvas.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.filter = 'none';
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = 'transparent';
+
       drawHUD();
       biomeSystem.drawBanner();
       checkAllPlayersDead();
@@ -2602,7 +2641,7 @@
     }
 
     function checkLocalObstacleCollisions() {
-      if (isGameOver) return;
+      if (netMode === 'client' || isGameOver) return;
       for (const obs of obstacles) {
         if (rectsOverlap(dino, obs, 6, 4)) {
           dino.takeDamage();
@@ -2612,7 +2651,7 @@
     }
 
     function checkLocalMeteorCollisions() {
-      if (isGameOver) return;
+      if (netMode === 'client' || isGameOver) return;
       const dinoCenterX = dino.x + dino.width / 2;
       const dinoCenterY = dino.y + dino.height / 2;
 
@@ -2628,7 +2667,7 @@
     }
 
     function checkLocalBossCollisions() {
-      if (!boss.active || isGameOver) return;
+      if (netMode === 'client' || !boss.active || isGameOver) return;
 
       if (boss.laser.active &&
           dino.y < boss.laser.y + boss.laser.height &&
