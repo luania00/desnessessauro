@@ -691,10 +691,8 @@
           this.skyFactor = this.current === 'water' ? 1 : 0;
         }
 
-        const r = Math.round(255 - (255 - 240) * this.skyFactor);
-        const g = Math.round(255 - (255 - 249) * this.skyFactor);
-        const b = Math.round(255 - (255 - 255) * this.skyFactor);
-        canvas.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+        // O fundo do canvas permanece neutro; a cor individual é aplicada somente aos dinos.
+        canvas.style.backgroundColor = '#ffffff';
       },
 
       isSolidGroundAt(x) {
@@ -2192,10 +2190,8 @@
         boss.projectiles = (incomingBoss.projectiles || []).map(p => ({ ...p }));
       }
 
-      const r = Math.round(255 - (255 - 240) * biomeSystem.skyFactor);
-      const g = Math.round(255 - (255 - 249) * biomeSystem.skyFactor);
-      const b = Math.round(255 - (255 - 255) * biomeSystem.skyFactor);
-      canvas.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+      // Não deixar a sincronização do mundo alterar a cor do fundo.
+      canvas.style.backgroundColor = '#ffffff';
     }
 
     // ==========================================
