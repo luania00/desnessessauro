@@ -620,6 +620,11 @@
     const clientConnections = [];
     const remotePlayers = new Map();
 
+    // Mundo autoritativo do Host: evita que obstáculos/biomas saiam de sincronia.
+    let latestWorldSnapshot = null;
+    let loopEpoch = 0;
+    let animationRequestId = 0;
+
     const keys = { left: false, right: false, down: false };
 
     // --- BIOMAS ---
@@ -689,14 +694,23 @@
       },
 
       isSolidGroundAt(x) {
-        if (!roomSettings.enableWaterBiome) return true;
-        if (!this.transitioning) return this.current === 'desert';
-        if (this.current === 'desert' && this.targetBiome === 'water') {
-          return x < this.seamX;
+        let solid;
+        if (!roomSettings.enableWaterBiome) {
+          solid = true;
+        } else if (!this.transitioning) {
+          solid = this.current === 'desert';
+        } else if (this.current === 'desert' && this.targetBiome === 'water') {
+          solid = x < this.seamX;
         } else if (this.current === 'water' && this.targetBiome === 'desert') {
-          return x >= this.seamX;
+          solid = x >= this.seamX;
+        } else {
+          solid = true;
         }
-        return true;
+
+        if (solid && this.current === 'desert' && !this.transitioning && isGroundHoleAt(x)) {
+          return false;
+        }
+        return solid;
       },
 
       drawBanner() {
@@ -727,7 +741,7 @@
       const isWaterPresent = biomeSystem.current === 'water' || 
                             (biomeSystem.transitioning && (biomeSystem.targetBiome === 'water' || biomeSystem.current === 'water'));
 
-      if (isWaterPresent && !boss.active) {
+      if (netMode !== 'client' && isWaterPresent && !boss.active) {
         platformTimer++;
         if (platformTimer > 45 && syncRandom() < 0.08) {
           if (!biomeSystem.transitioning || biomeSystem.targetBiome === 'water' || (biomeSystem.targetBiome === 'desert' && canvas.width < biomeSystem.seamX)) {
@@ -739,7 +753,7 @@
 
       for (let i = platforms.length - 1; i >= 0; i--) {
         const p = platforms[i];
-        p.x -= gameSpeed;
+        if (netMode !== 'client') p.x -= gameSpeed;
 
         const rx = Math.round(p.x);
         const ry = Math.round(p.y);
@@ -889,6 +903,21 @@
       ctx.fillRect(x - 5, groundY - 4, 10, 5);
       ctx.fillStyle = '#a67c52';
       ctx.fillRect(x - 5, groundY - 4, 10, 2);
+    }
+
+    // Coloreia o sprite sem precisar de imagens diferentes para cada jogador.
+    function drawTintedSprite(sprite, x, y, width, height, hex, alpha = 0.78) {
+      if (!sprite || !sprite.complete || sprite.naturalWidth === 0) return false;
+
+      ctx.drawImage(sprite, x, y, width, height);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = hex;
+      ctx.fillRect(x, y, width, height);
+      ctx.restore();
+      return true;
     }
 
     // --- Dino Local ---
@@ -1072,10 +1101,12 @@
         ctx.textAlign = 'center';
         ctx.fillText(`★ VOCÊ (${myNickname})`, rx + this.width / 2, ry - 6);
 
-        if (currentSprite.complete && currentSprite.naturalWidth !== 0) {
-          ctx.drawImage(currentSprite, rx, ry, this.width, this.height);
-        } else {
-          ctx.fillStyle = isGameOver ? '#d63031' : PLAYER_COLORS[myPlayerIndex % PLAYER_COLORS.length].hex;
+        const localColor = isGameOver
+          ? '#d63031'
+          : PLAYER_COLORS[myPlayerIndex % PLAYER_COLORS.length].hex;
+
+        if (!drawTintedSprite(currentSprite, rx, ry, this.width, this.height, localColor, isGameOver ? 0.55 : 0.72)) {
+          ctx.fillStyle = localColor;
           ctx.fillRect(rx, ry, this.width, this.height);
         }
         ctx.restore();
@@ -1114,9 +1145,15 @@
         else if (!player.isGrounded) spriteToDraw = assets.jump;
         else if (player.isDucking) spriteToDraw = assets.duck1;
 
-        if (spriteToDraw.complete && spriteToDraw.naturalWidth !== 0) {
-          ctx.drawImage(spriteToDraw, rx, ry, pWidth, pHeight);
-        } else {
+        if (!drawTintedSprite(
+          spriteToDraw,
+          rx,
+          ry,
+          pWidth,
+          pHeight,
+          pColor.hex,
+          player.isDead ? 0.35 : 0.72
+        )) {
           ctx.fillStyle = pColor.hex;
           ctx.fillRect(rx, ry, pWidth, pHeight);
         }
@@ -1307,6 +1344,108 @@
       showerLength: 65,
       spawnCooldown: 0
     };
+
+    // --- Terremotos e Buracos ---
+    let groundHoles = [];
+    const earthquakeEvent = {
+      state: 'idle',
+      nextEarthquakeDist: 520,
+      warningDist: 35,
+      duration: 70,
+      timer: 0,
+      shake: 0
+    };
+
+    function startEarthquake() {
+      earthquakeEvent.state = 'warning';
+      earthquakeEvent.timer = 0;
+      earthquakeEvent.shake = 0;
+    }
+
+    function spawnEarthquakeHoles() {
+      groundHoles = [];
+      const holeCount = Math.floor(syncRandom() * 4) + 3; // 3-6 buracos
+      let nextX = canvas.width + 80;
+
+      for (let i = 0; i < holeCount; i++) {
+        nextX += Math.floor(syncRandom() * 85) + 55;
+        groundHoles.push({
+          x: nextX,
+          width: Math.floor(syncRandom() * 32) + 34
+        });
+      }
+    }
+
+    function updateEarthquake() {
+      if (boss.active) {
+        earthquakeEvent.state = 'idle';
+        earthquakeEvent.shake = 0;
+        return;
+      }
+
+      if (earthquakeEvent.state === 'idle') {
+        if (score >= earthquakeEvent.nextEarthquakeDist) {
+          startEarthquake();
+        }
+      } else if (earthquakeEvent.state === 'warning') {
+        earthquakeEvent.timer++;
+        if (earthquakeEvent.timer >= earthquakeEvent.warningDist) {
+          earthquakeEvent.state = 'active';
+          earthquakeEvent.timer = 0;
+          spawnEarthquakeHoles();
+        }
+      } else if (earthquakeEvent.state === 'active') {
+        earthquakeEvent.timer++;
+        earthquakeEvent.shake = Math.sin(earthquakeEvent.timer * 1.9) * 3.0;
+
+        for (const hole of groundHoles) {
+          hole.x -= gameSpeed;
+        }
+        groundHoles = groundHoles.filter(h => h.x + h.width > -40);
+
+        if (earthquakeEvent.timer >= earthquakeEvent.duration || groundHoles.length === 0) {
+          earthquakeEvent.state = 'idle';
+          earthquakeEvent.shake = 0;
+          earthquakeEvent.nextEarthquakeDist = score + Math.floor(syncRandom() * 280) + 420;
+        }
+      }
+    }
+
+    function drawEarthquake() {
+      if (earthquakeEvent.state === 'warning') {
+        if (Math.floor(animFrameCounter / 5) % 2 === 0) {
+          ctx.fillStyle = '#8e44ad';
+          ctx.font = 'bold 13px "Courier New", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('⚠️ TERREMOTO! O CHÃO VAI RACHAR! ⚠️', canvas.width / 2, 70);
+        }
+      } else if (earthquakeEvent.state === 'active') {
+        ctx.fillStyle = '#6d4c41';
+        for (const hole of groundHoles) {
+          ctx.fillRect(Math.round(hole.x), groundY - 1, Math.round(hole.width), canvas.height - groundY + 2);
+          ctx.fillStyle = '#3e2723';
+          ctx.fillRect(Math.round(hole.x + 4), groundY - 2, Math.max(4, Math.round(hole.width - 8)), 4);
+          ctx.fillStyle = '#6d4c41';
+        }
+
+        if (Math.floor(animFrameCounter / 4) % 2 === 0) {
+          ctx.font = 'bold 11px "Courier New", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('🌋 TERREMOTO! CUIDADO COM OS BURACOS!', canvas.width / 2, 70);
+        }
+      }
+    }
+
+    function isGroundHoleAt(x) {
+      if (earthquakeEvent.state !== 'active') return false;
+      return groundHoles.some(h => x >= h.x && x <= h.x + h.width);
+    }
+
+    function getScreenShakeX() {
+      return netMode === 'client' && latestWorldSnapshot
+        ? (latestWorldSnapshot.earthquakeShake || 0)
+        : earthquakeEvent.shake;
+    }
 
     function spawnMeteor() {
       const typeRoll = syncRandom();
@@ -1724,7 +1863,7 @@
       if (netMode === 'solo') {
         hideAllScreens();
         resetGameEngine(Math.floor(Math.random() * 1000000));
-        loop();
+        startGameLoop();
       } else if (netMode === 'host') {
         hostStartMatch();
       }
@@ -1755,6 +1894,7 @@
       animFrameCounter = 0;
       allDeadCheckCooldown = 0;
       matchResultsShown = false;
+      latestWorldSnapshot = null;
 
       biomeSystem.current = 'desert';
       biomeSystem.targetBiome = 'desert';
@@ -1786,6 +1926,12 @@
       meteorEvent.state = 'idle';
       meteorEvent.nextShowerDist = 220;
 
+      groundHoles = [];
+      earthquakeEvent.state = 'idle';
+      earthquakeEvent.nextEarthquakeDist = 520;
+      earthquakeEvent.timer = 0;
+      earthquakeEvent.shake = 0;
+
       remotePlayers.forEach(p => {
         p.isDead = false;
         p.score = 0;
@@ -1794,45 +1940,236 @@
     }
 
     // --- Loop Principal ---
-    function loop() {
-      if (!isGameRunning) return;
+    function startGameLoop() {
+      isGameRunning = true;
+      loopEpoch++;
+      const token = loopEpoch;
+      cancelAnimationFrame(animationRequestId);
+      animationRequestId = requestAnimationFrame(() => loop(token));
+    }
+
+    function stopGameLoop() {
+      isGameRunning = false;
+      loopEpoch++;
+      cancelAnimationFrame(animationRequestId);
+      animationRequestId = 0;
+    }
+
+    function loop(token) {
+      if (!isGameRunning || token !== loopEpoch) return;
 
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       animFrameCounter++;
-      if (!isGameOver) {
-        score += 0.15;
-        gameSpeed += 0.00035;
+
+      // O Host (ou Solo) é o dono do mundo. Clientes apenas aplicam o snapshot.
+      if (netMode === 'client') {
+        applyWorldSnapshot();
+      } else {
+        if (!isGameOver) {
+          score += 0.15;
+          gameSpeed += 0.00035;
+        }
+
+        biomeSystem.update();
+        updateEarthquake();
+        checkBossTrigger();
+        updateBoss();
+        publishWorldSnapshot();
       }
 
-      biomeSystem.update();
+      // Tremor visual compartilhado.
+      const shakeX = getScreenShakeX();
+      const shakeY = shakeX ? Math.sin(animFrameCounter * 2.4) * Math.abs(shakeX) * 0.55 : 0;
+      ctx.save();
+      if (shakeX || shakeY) ctx.translate(Math.round(shakeX), Math.round(shakeY));
+
       updateAndDrawClouds();
       updateAndDrawMountains();
       updateAndDrawGround();
-      updateAndDrawPlatforms();
 
-      checkBossTrigger();
+      // Objetos do mundo são movimentados pelo Host e desenhados depois do chão.
+      updateAndDrawPlatforms();
+      if (netMode !== 'client') {
+        updateObstacles();
+        updateMeteors();
+      }
+
       dino.update();
-      
+
+      if (netMode === 'client') {
+        checkLocalObstacleCollisions();
+        checkLocalMeteorCollisions();
+        checkLocalBossCollisions();
+      }
+
       drawRemotePlayers();
       dino.draw();
-
-      updateObstacles();
-      updateMeteors();
-      updateBoss();
       drawBoss();
+      drawEarthquake();
+
+      ctx.restore();
 
       drawHUD();
       biomeSystem.drawBanner();
-
       checkAllPlayersDead();
 
       if (netMode !== 'solo' && animFrameCounter % 2 === 0) {
         syncLocalPlayerToNetwork();
       }
 
-      requestAnimationFrame(loop);
+      animationRequestId = requestAnimationFrame(() => loop(token));
+    }
+
+    function rectsOverlap(a, b, marginX = 0, marginY = 0) {
+      return (
+        a.x + marginX < b.x + b.width &&
+        a.x + a.width - marginX > b.x &&
+        a.y + marginY < b.y + b.height &&
+        a.y + a.height - marginY > b.y
+      );
+    }
+
+    function checkLocalObstacleCollisions() {
+      if (isGameOver) return;
+      for (const obs of obstacles) {
+        if (rectsOverlap(dino, obs, 6, 4)) {
+          dino.takeDamage();
+          break;
+        }
+      }
+    }
+
+    function checkLocalMeteorCollisions() {
+      if (isGameOver) return;
+      const dinoCenterX = dino.x + dino.width / 2;
+      const dinoCenterY = dino.y + dino.height / 2;
+
+      for (const m of meteors) {
+        const mCenterX = m.x + m.width / 2;
+        const mCenterY = m.y + m.height / 2;
+        const dist = Math.hypot(mCenterX - dinoCenterX, mCenterY - dinoCenterY);
+        if (dist < (m.width / 2 + Math.min(dino.width, dino.height) / 2) - 5) {
+          dino.takeDamage();
+          break;
+        }
+      }
+    }
+
+    function checkLocalBossCollisions() {
+      if (!boss.active || isGameOver) return;
+
+      if (boss.laser.active &&
+          dino.y < boss.laser.y + boss.laser.height &&
+          dino.y + dino.height > boss.laser.y) {
+        dino.takeDamage();
+        return;
+      }
+
+      const dinoCenterX = dino.x + dino.width / 2;
+      const dinoCenterY = dino.y + dino.height / 2;
+
+      for (const p of boss.projectiles) {
+        if (p.radius) {
+          if (Math.hypot(p.x - dinoCenterX, p.y - dinoCenterY) < p.radius + dino.width / 3) {
+            dino.takeDamage();
+            return;
+          }
+        } else if (p.width && rectsOverlap(dino, p)) {
+          dino.takeDamage();
+          return;
+        }
+      }
+    }
+
+    function serializeArray(arr, fields) {
+      return arr.map(item => {
+        const out = {};
+        for (const field of fields) out[field] = item[field];
+        return out;
+      });
+    }
+
+    function publishWorldSnapshot() {
+      if (netMode !== 'host') return;
+      if (animFrameCounter % 3 !== 0) return;
+
+      const snapshot = {
+        type: 'WORLD_SNAPSHOT',
+        score,
+        gameSpeed,
+        groundScrollX,
+        waterScrollX,
+        biome: {
+          current: biomeSystem.current,
+          targetBiome: biomeSystem.targetBiome,
+          transitioning: biomeSystem.transitioning,
+          seamX: biomeSystem.seamX,
+          skyFactor: biomeSystem.skyFactor,
+          bannerText: biomeSystem.bannerText,
+          bannerTimer: biomeSystem.bannerTimer
+        },
+        platforms: serializeArray(platforms, ['x', 'y', 'width', 'height']),
+        obstacles: serializeArray(obstacles, ['type', 'x', 'y', 'width', 'height', 'speedOffset', 'speed', 'isTracking', 'lockDistance', 'wobbleOffset']),
+        meteors: serializeArray(meteors, ['x', 'y', 'width', 'height', 'vx', 'vy', 'angle', 'rotSpeed']),
+        groundHoles: serializeArray(groundHoles, ['x', 'width']),
+        earthquake: {
+          state: earthquakeEvent.state,
+          timer: earthquakeEvent.timer,
+          nextEarthquakeDist: earthquakeEvent.nextEarthquakeDist,
+          shake: earthquakeEvent.shake
+        },
+        boss: {
+          active: boss.active,
+          defeated: boss.defeated,
+          hp: boss.hp,
+          x: boss.x,
+          y: boss.y,
+          width: boss.width,
+          height: boss.height,
+          attackCooldown: boss.attackCooldown,
+          patternIndex: boss.patternIndex,
+          laser: { ...boss.laser },
+          projectiles: boss.projectiles.map(p => ({ ...p }))
+        }
+      };
+
+      broadcastToClients(snapshot);
+    }
+
+    function applyWorldSnapshot() {
+      if (!latestWorldSnapshot) return;
+
+      score = latestWorldSnapshot.score;
+      gameSpeed = latestWorldSnapshot.gameSpeed;
+      groundScrollX = latestWorldSnapshot.groundScrollX;
+      waterScrollX = latestWorldSnapshot.waterScrollX;
+
+      if (latestWorldSnapshot.biome) {
+        Object.assign(biomeSystem, latestWorldSnapshot.biome);
+      }
+
+      platforms = (latestWorldSnapshot.platforms || []).map(p => ({ ...p }));
+      obstacles = (latestWorldSnapshot.obstacles || []).map(o => ({ ...o }));
+      meteors = (latestWorldSnapshot.meteors || []).map(m => ({ ...m }));
+      groundHoles = (latestWorldSnapshot.groundHoles || []).map(h => ({ ...h }));
+
+      if (latestWorldSnapshot.earthquake) {
+        Object.assign(earthquakeEvent, latestWorldSnapshot.earthquake);
+      }
+
+      if (latestWorldSnapshot.boss) {
+        const incomingBoss = latestWorldSnapshot.boss;
+        Object.assign(boss, incomingBoss);
+        boss.laser = { ...incomingBoss.laser };
+        boss.projectiles = (incomingBoss.projectiles || []).map(p => ({ ...p }));
+      }
+
+      const r = Math.round(255 - (255 - 240) * biomeSystem.skyFactor);
+      const g = Math.round(255 - (255 - 249) * biomeSystem.skyFactor);
+      const b = Math.round(255 - (255 - 255) * biomeSystem.skyFactor);
+      canvas.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
     }
 
     // ==========================================
@@ -2096,9 +2433,11 @@
         resetGameEngine(data.seed);
         isGameRunning = true;
         document.getElementById('statusRoomInfo').innerText = `Sala: ${roomCode} (Online)`;
-        loop();
+        startGameLoop();
       } else if (data.type === 'REMOTE_PLAYER_UPDATE') {
         remotePlayers.set(data.player.id, data.player);
+      } else if (data.type === 'WORLD_SNAPSHOT') {
+        latestWorldSnapshot = data;
       } else if (data.type === 'MATCH_OVER') {
         showMatchResultsScreen(data.podium);
       }
@@ -2111,7 +2450,7 @@
       resetGameEngine(generatedSeed);
       isGameRunning = true;
       document.getElementById('statusRoomInfo').innerText = `Sala: ${roomCode} [Host]`;
-      loop();
+      startGameLoop();
     }
 
     function syncLocalPlayerToNetwork() {
@@ -2227,9 +2566,12 @@
     }
 
     function leaveRoom() {
+      stopGameLoop();
       if (peer) {
         try { peer.destroy(); } catch(e) {}
       }
+      latestWorldSnapshot = null;
+      hostConnection = null;
       netMode = 'solo';
       showMainMenu();
     }
@@ -2242,7 +2584,7 @@
       resetGameEngine(Math.floor(Math.random() * 1000000));
       isGameRunning = true;
       document.getElementById('statusRoomInfo').innerText = 'Modo: Solo Offline';
-      loop();
+      startGameLoop();
     }
 
     function shareRoomLink() {
