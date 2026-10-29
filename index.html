@@ -3615,25 +3615,31 @@
       const btn = document.getElementById(elementId);
       if (!btn) return;
 
+      // Pointer Events unificam toque, mouse e caneta e evitam disparos
+      // duplicados de touchstart + mousedown em navegadores móveis.
+      let pressed = false;
       const handlePress = (e) => {
+        if (pressed) return;
+        pressed = true;
         e.preventDefault();
         btn.classList.add('active');
+        try { btn.setPointerCapture(e.pointerId); } catch (_) {}
         if (onPress) onPress();
       };
 
       const handleRelease = (e) => {
+        if (!pressed) return;
+        pressed = false;
         e.preventDefault();
         btn.classList.remove('active');
         if (onRelease) onRelease();
       };
 
-      btn.addEventListener('touchstart', handlePress, { passive: false });
-      btn.addEventListener('touchend', handleRelease, { passive: false });
-      btn.addEventListener('touchcancel', handleRelease, { passive: false });
-      
-      btn.addEventListener('mousedown', handlePress);
-      btn.addEventListener('mouseup', handleRelease);
-      btn.addEventListener('mouseleave', handleRelease);
+      btn.addEventListener('pointerdown', handlePress);
+      btn.addEventListener('pointerup', handleRelease);
+      btn.addEventListener('pointercancel', handleRelease);
+      btn.addEventListener('lostpointercapture', handleRelease);
+      btn.addEventListener('contextmenu', e => e.preventDefault());
     }
 
     setupTouchButton('btnTouchLeft', () => { keys.left = true; sendInputState(true); }, () => { keys.left = false; sendInputState(true); });
